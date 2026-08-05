@@ -18,12 +18,29 @@ import { ApiError } from "@/lib/api/client";
 import type { PlanView } from "@/modules/super-admin/types/plan.types";
 import type { FeatureView } from "@/modules/super-admin/types/feature.types";
 
-type CreatePlanFormValues = { name: string; price: string; billingCycle: string; featureCodes: string[] };
+type CreatePlanFormValues = {
+  name: string;
+  price: string;
+  billingCycle: string;
+  featureCodes: string[];
+  maxWarehouses: string;
+  maxUsers: string;
+};
 
 const columns: DataTableColumn<PlanView>[] = [
   { key: "name", header: "Name" },
   { key: "price", header: "Price" },
   { key: "billingCycle", header: "Billing" },
+  {
+    key: "maxWarehouses",
+    header: "Warehouse limit",
+    render: (row) => row.maxWarehouses ?? "Unlimited",
+  },
+  {
+    key: "maxUsers",
+    header: "User limit",
+    render: (row) => row.maxUsers ?? "Unlimited",
+  },
   {
     key: "features",
     header: "Features",
@@ -49,7 +66,18 @@ export default function SuperAdminPlansPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (values: CreatePlanFormValues) => superAdminApiClient.post<PlanView>("/plans", values),
+    // Blank limit fields must be OMITTED, not sent as "" — the API treats
+    // an omitted maxWarehouses/maxUsers as unlimited, but Number("") is 0,
+    // which would be rejected by the schema's .positive() check instead.
+    mutationFn: (values: CreatePlanFormValues) =>
+      superAdminApiClient.post<PlanView>("/plans", {
+        name: values.name,
+        price: values.price,
+        billingCycle: values.billingCycle,
+        featureCodes: values.featureCodes,
+        maxWarehouses: values.maxWarehouses ? Number(values.maxWarehouses) : undefined,
+        maxUsers: values.maxUsers ? Number(values.maxUsers) : undefined,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["super-admin", "plans"] });
       toast.success("Plan created");
@@ -96,7 +124,7 @@ function CreatePlanDialog({
   onSubmit: (values: CreatePlanFormValues) => Promise<void>;
 }) {
   const form = useForm<CreatePlanFormValues>({
-    defaultValues: { name: "", price: "", billingCycle: "MONTHLY", featureCodes: [] },
+    defaultValues: { name: "", price: "", billingCycle: "MONTHLY", featureCodes: [], maxWarehouses: "", maxUsers: "" },
   });
 
   const handleSubmit = async (values: CreatePlanFormValues) => {
@@ -142,6 +170,22 @@ function CreatePlanDialog({
                   </Select>
                 )}
               />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="maxWarehouses">Warehouse limit</Label>
+              <Input
+                id="maxWarehouses"
+                type="number"
+                min={1}
+                placeholder="Unlimited"
+                {...form.register("maxWarehouses")}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="maxUsers">User limit</Label>
+              <Input id="maxUsers" type="number" min={1} placeholder="Unlimited" {...form.register("maxUsers")} />
             </div>
           </div>
           <div className="space-y-1.5">

@@ -5,6 +5,7 @@ vi.mock("../repository/warehouse.repository", () => ({
   warehouseRepository: {
     findManyByTenant: vi.fn(),
     findByIdForTenant: vi.fn(),
+    countActiveByTenant: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     softDelete: vi.fn(),
@@ -13,7 +14,12 @@ vi.mock("../repository/warehouse.repository", () => ({
   },
 }));
 
+vi.mock("@/shared/utils/plan-limits", () => ({
+  getActivePlanLimits: vi.fn().mockResolvedValue({ maxWarehouses: null, maxUsers: null }),
+}));
+
 import { warehouseRepository } from "../repository/warehouse.repository";
+import { getActivePlanLimits } from "@/shared/utils/plan-limits";
 import { warehouseService } from "../service/warehouse.service";
 
 function warehouseRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -64,6 +70,27 @@ describe("warehouseService.list / getById — warehouse scoping", () => {
 describe("warehouseService.create", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null });
+  });
+
+  it("blocks creation once the plan's warehouse limit is reached", async () => {
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: 2, maxUsers: null });
+    vi.mocked(warehouseRepository.countActiveByTenant).mockResolvedValue(2);
+
+    await expect(
+      warehouseService.create({ tenantId: 1n, name: "MG Road Store", code: "MGR" }),
+    ).rejects.toMatchObject({ code: "PLAN_LIMIT_REACHED" });
+    expect(warehouseRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("allows creation when under the plan's warehouse limit", async () => {
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: 2, maxUsers: null });
+    vi.mocked(warehouseRepository.countActiveByTenant).mockResolvedValue(1);
+    vi.mocked(warehouseRepository.create).mockResolvedValue(warehouseRow() as never);
+
+    await warehouseService.create({ tenantId: 1n, name: "MG Road Store", code: "MGR" });
+
+    expect(warehouseRepository.create).toHaveBeenCalled();
   });
 
   it("maps a duplicate warehouse code to DUPLICATE_CODE", async () => {

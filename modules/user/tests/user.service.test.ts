@@ -7,6 +7,7 @@ vi.mock("../repository/user.repository", () => ({
     findByIdForTenant: vi.fn(),
     findRoleForTenant: vi.fn(),
     findWarehouseForTenant: vi.fn(),
+    countActiveByTenant: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     softDelete: vi.fn(),
@@ -17,8 +18,13 @@ vi.mock("@/modules/auth/utils/password.util", () => ({
   hashPassword: vi.fn(async () => "hashed-password"),
 }));
 
+vi.mock("@/shared/utils/plan-limits", () => ({
+  getActivePlanLimits: vi.fn(),
+}));
+
 import { userRepository } from "../repository/user.repository";
 import { hashPassword } from "@/modules/auth/utils/password.util";
+import { getActivePlanLimits } from "@/shared/utils/plan-limits";
 import { userService } from "../service/user.service";
 
 function userRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -85,6 +91,34 @@ describe("userService.list / getById", () => {
 describe("userService.create", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null });
+  });
+
+  it("blocks creation once the plan's user limit is reached", async () => {
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: 3 });
+    vi.mocked(userRepository.countActiveByTenant).mockResolvedValue(3);
+
+    await expect(
+      userService.create({ tenantId: 1n, name: "X", email: "x@demo.test", password: "Password123!", roleId: 2n }),
+    ).rejects.toMatchObject({ code: "PLAN_LIMIT_REACHED" });
+    expect(userRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("allows creation when under the plan's user limit", async () => {
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: 3 });
+    vi.mocked(userRepository.countActiveByTenant).mockResolvedValue(2);
+    vi.mocked(userRepository.findRoleForTenant).mockResolvedValue({ id: 2n } as never);
+    vi.mocked(userRepository.create).mockResolvedValue(userRow() as never);
+
+    await userService.create({
+      tenantId: 1n,
+      name: "Jane Cashier",
+      email: "jane@demo.test",
+      password: "Password123!",
+      roleId: 2n,
+    });
+
+    expect(userRepository.create).toHaveBeenCalled();
   });
 
   it("hashes the password and creates the user when roleId belongs to the tenant", async () => {

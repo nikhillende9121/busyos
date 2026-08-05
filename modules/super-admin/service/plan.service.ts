@@ -33,6 +33,8 @@ export const superAdminPlanService = {
         name: dto.name,
         price: dto.price,
         billingCycle: dto.billingCycle,
+        maxWarehouses: dto.maxWarehouses ?? null,
+        maxUsers: dto.maxUsers ?? null,
       });
       await superAdminPlanRepository.addFeatures(tx, created.id, featureIds);
       return created;
@@ -49,6 +51,8 @@ function toPlanView(plan: PlanWithFeatures): PlanView {
     name: plan.name,
     price: plan.price.toString(),
     billingCycle: plan.billingCycle,
+    maxWarehouses: plan.maxWarehouses,
+    maxUsers: plan.maxUsers,
     features: plan.planFeatures.map((pf) => pf.feature.code),
     createdAt: plan.createdAt.toISOString(),
     updatedAt: plan.updatedAt.toISOString(),

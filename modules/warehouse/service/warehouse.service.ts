@@ -3,6 +3,7 @@ import type { Warehouse } from "@prisma/client";
 import { warehouseRepository } from "../repository/warehouse.repository";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
+import { getActivePlanLimits } from "@/shared/utils/plan-limits";
 import type { CreateWarehouseDto, UpdateWarehouseDto } from "../dto/warehouse.dto";
 import type { WarehouseView } from "../types/warehouse.types";
 
@@ -26,6 +27,17 @@ export const warehouseService = {
   },
 
   async create(dto: CreateWarehouseDto): Promise<WarehouseView> {
+    const { maxWarehouses } = await getActivePlanLimits(dto.tenantId);
+    if (maxWarehouses !== null) {
+      const currentCount = await warehouseRepository.countActiveByTenant(dto.tenantId);
+      if (currentCount >= maxWarehouses) {
+        throw new AppError(
+          "PLAN_LIMIT_REACHED",
+          `Your plan allows up to ${maxWarehouses} warehouse${maxWarehouses === 1 ? "" : "s"} — upgrade to add more`,
+        );
+      }
+    }
+
     try {
       const warehouse = await warehouseRepository.create({
         tenantId: dto.tenantId,

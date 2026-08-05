@@ -8,5 +8,8 @@ export const createPlanSchema = z.object({
   // Feature codes this plan includes — validated against the live Feature
   // catalog in the service layer (schema has no DB access).
   featureCodes: z.array(z.string()).optional(),
+  // Omitted means unlimited — see shared/utils/plan-limits.ts.
+  maxWarehouses: z.coerce.number().int().positive().optional(),
+  maxUsers: z.coerce.number().int().positive().optional(),
 });
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;

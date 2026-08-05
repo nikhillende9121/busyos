@@ -229,12 +229,21 @@ model SuperAdmin {
 }
 
 model Plan {
-  id           BigInt       @id @default(autoincrement())
-  name         String       @db.VarChar(100)
-  price        Decimal      @db.Decimal(12, 2)
-  billingCycle BillingCycle
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id            BigInt       @id @default(autoincrement())
+  name          String       @db.VarChar(100)
+  price         Decimal      @db.Decimal(12, 2)
+  billingCycle  BillingCycle
+  // Quota a subscribed tenant may not exceed when creating a new
+  // Warehouse/User — null means unlimited. Enforced in
+  // modules/warehouse/service/warehouse.service.ts and
+  // modules/user/service/user.service.ts via shared/utils/plan-limits.ts,
+  // never at the database level (a tenant already over a newly-lowered
+  // limit is never retroactively touched — see Docs/business-rules/
+  // plan-limits.md).
+  maxWarehouses Int?
+  maxUsers      Int?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   planFeatures        PlanFeature[]
   tenantSubscriptions TenantSubscription[]

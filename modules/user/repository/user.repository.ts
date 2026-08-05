@@ -28,6 +28,12 @@ export const userRepository = {
     return prisma.warehouse.findFirst({ where: { id: warehouseId, tenantId, deletedAt: null } });
   },
 
+  // Backs the plan-limit check in user.service.ts's create() — a
+  // soft-deleted user no longer counts against the quota.
+  countActiveByTenant(tenantId: bigint) {
+    return prisma.user.count({ where: { tenantId, deletedAt: null } });
+  },
+
   create(data: Prisma.UserUncheckedCreateInput) {
     return prisma.user.create({ data, include: includeRole });
   },

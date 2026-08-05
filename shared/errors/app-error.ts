@@ -16,6 +16,7 @@ export type ErrorCode =
   | "CONFLICT"
   | "INSUFFICIENT_STOCK"
   | "SUBSCRIPTION_EXPIRED"
+  | "PLAN_LIMIT_REACHED"
   | "INTERNAL_ERROR";
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
@@ -31,6 +32,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   DUPLICATE_CODE: 409,
   DUPLICATE_EMAIL: 409,
   CONFLICT: 409,
+  PLAN_LIMIT_REACHED: 409,
   INSUFFICIENT_STOCK: 422,
   INTERNAL_ERROR: 500,
 };

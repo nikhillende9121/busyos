@@ -3,6 +3,7 @@ import type { User, Role, Warehouse } from "@prisma/client";
 import { userRepository } from "../repository/user.repository";
 import { hashPassword } from "@/modules/auth/utils/password.util";
 import { AppError } from "@/shared/errors/app-error";
+import { getActivePlanLimits } from "@/shared/utils/plan-limits";
 import type { CreateUserDto, UpdateUserDto } from "../dto/user.dto";
 import type { UserView } from "../types/user.types";
 
@@ -23,6 +24,17 @@ export const userService = {
   },
 
   async create(dto: CreateUserDto): Promise<UserView> {
+    const { maxUsers } = await getActivePlanLimits(dto.tenantId);
+    if (maxUsers !== null) {
+      const currentCount = await userRepository.countActiveByTenant(dto.tenantId);
+      if (currentCount >= maxUsers) {
+        throw new AppError(
+          "PLAN_LIMIT_REACHED",
+          `Your plan allows up to ${maxUsers} user${maxUsers === 1 ? "" : "s"} — upgrade to add more`,
+        );
+      }
+    }
+
     const role = await userRepository.findRoleForTenant(dto.tenantId, dto.roleId);
     if (!role) {
       throw new AppError("VALIDATION_ERROR", "roleId does not belong to this tenant");

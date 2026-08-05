@@ -16,6 +16,12 @@ export const warehouseRepository = {
     return prisma.warehouse.findFirst({ where: { id, tenantId, deletedAt: null } });
   },
 
+  // Backs the plan-limit check in warehouse.service.ts's create() — a
+  // soft-deleted warehouse no longer counts against the quota.
+  countActiveByTenant(tenantId: bigint) {
+    return prisma.warehouse.count({ where: { tenantId, deletedAt: null } });
+  },
+
   create(data: Prisma.WarehouseUncheckedCreateInput) {
     return prisma.warehouse.create({ data });
   },
