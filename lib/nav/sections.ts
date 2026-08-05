@@ -49,6 +49,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Sales", href: "/sales", permission: "SALE.VIEW" },
       { label: "Sale Returns", href: "/sale-returns", permission: "SALE_RETURN.VIEW" },
+      { label: "Sale Exchanges", href: "/sale-exchanges", permission: "SALE.EXCHANGE" },
       { label: "Customers", href: "/customers", permission: "CUSTOMER.VIEW" },
       { label: "Customer Groups", href: "/customer-groups", permission: "CUSTOMER_GROUP.VIEW" },
     ],

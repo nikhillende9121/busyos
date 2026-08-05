@@ -10,6 +10,7 @@ import type { NavItem } from "./sections";
 export const STORE_NAV_ITEMS: NavItem[] = [
   { label: "Sales", href: "/store/sales", permission: "SALE.VIEW" },
   { label: "Sale Returns", href: "/store/sale-returns", permission: "SALE_RETURN.VIEW" },
+  { label: "Sale Exchanges", href: "/store/sale-exchanges", permission: "SALE.EXCHANGE" },
   { label: "Purchases", href: "/store/purchases", permission: "PURCHASE.VIEW" },
   { label: "Purchase Returns", href: "/store/purchase-returns", permission: "PURCHASE_RETURN.VIEW" },
   { label: "Inventory", href: "/store/inventory", permission: "INVENTORY.VIEW" },
