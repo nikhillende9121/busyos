@@ -11,12 +11,26 @@ declare global {
   var __prisma: PrismaClient | undefined;
 }
 
-function createPrismaClient(): PrismaClient {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is not set");
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is not set`);
   }
-  const adapter = new PrismaMariaDb(connectionString);
+  return value;
+}
+
+function createPrismaClient(): PrismaClient {
+  // Discrete fields instead of a DATABASE_URL string: the password is used
+  // raw here, so it never needs URL percent-encoding (a recurring source of
+  // broken connection strings when the password contains @).
+  const adapter = new PrismaMariaDb({
+    host: requireEnv("DB_HOST"),
+    port: Number(process.env.DB_PORT ?? 3306),
+    user: requireEnv("DB_USER"),
+    password: requireEnv("DB_PASSWORD"),
+    database: requireEnv("DB_NAME"),
+    allowPublicKeyRetrieval: true,
+  });
   return new PrismaClient({ adapter });
 }
 
