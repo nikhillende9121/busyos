@@ -1,6 +1,7 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/shared/database/prisma";
+import { NON_INHERITABLE_PERMISSION_CODES } from "@/shared/constants/permissions";
 
 // Idempotent: every upsert keys off a real unique constraint (see
 // prisma/schema.prisma), so re-running this after the schema changes is
@@ -28,6 +29,7 @@ const PERMISSION_CODES = [
   "SALE.CONFIRM", "SALE.CREATE", "SALE.EXCHANGE", "SALE.UPDATE", "SALE.VIEW",
   "SALE_RETURN.CREATE", "SALE_RETURN.VIEW",
   "STOCK_TRANSFER.APPROVE", "STOCK_TRANSFER.CREATE", "STOCK_TRANSFER.RECEIVE", "STOCK_TRANSFER.SHIP", "STOCK_TRANSFER.UPDATE", "STOCK_TRANSFER.VIEW",
+  "STORE.ACCESS",
   "SUPPLIER.CREATE", "SUPPLIER.DELETE", "SUPPLIER.UPDATE", "SUPPLIER.VIEW",
   "TAX_RATE.CREATE", "TAX_RATE.DELETE", "TAX_RATE.UPDATE", "TAX_RATE.VIEW",
   "TENANT.UPDATE_SETTINGS", "TENANT.VIEW",
@@ -146,6 +148,7 @@ async function main() {
 
   const allPermissions = await prisma.permission.findMany();
   for (const permission of allPermissions) {
+    if (NON_INHERITABLE_PERMISSION_CODES.has(permission.code)) continue;
     await prisma.rolePermission.upsert({
       where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },
       create: { roleId: role.id, permissionId: permission.id },

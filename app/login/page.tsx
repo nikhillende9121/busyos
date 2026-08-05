@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { apiClient } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
+import type { MeView } from "@/modules/auth/types/auth.types";
 
 // A small, purpose-drawn mark (no stock "cash register" icon in lucide-react)
 // standing in for the product's own logo — a POS terminal: screen + keypad.
@@ -75,7 +77,18 @@ function LoginForm() {
     }
 
     await queryClient.invalidateQueries({ queryKey: queryKeys.me });
-    const next = searchParams.get("next") ?? "/";
+
+    // An explicit `next` (a deep link that bounced here) always wins.
+    // Otherwise, a role holding STORE.ACCESS lands on the simplified store
+    // view instead of the dashboard — see shared/constants/permissions.ts.
+    const explicitNext = searchParams.get("next");
+    let next = explicitNext ?? "/";
+    if (!explicitNext) {
+      const me = await apiClient.get<MeView>("/auth/me");
+      if (me.permissions.includes("STORE.ACCESS")) {
+        next = "/store";
+      }
+    }
     router.push(next);
     router.refresh();
   };

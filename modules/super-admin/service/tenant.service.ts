@@ -7,6 +7,7 @@ import { userService } from "@/modules/user/service/user.service";
 import { AppError } from "@/shared/errors/app-error";
 import { uploadImage, destroyImage, cloudinaryImageUrl, CLOUDINARY_TRANSFORM } from "@/shared/utils/cloudinary";
 import { assertValidImageFile } from "@/shared/utils/validate-image-file";
+import { NON_INHERITABLE_PERMISSION_CODES } from "@/shared/constants/permissions";
 import type {
   CreateTenantDto,
   UpdateTenantStatusDto,
@@ -86,12 +87,17 @@ export const superAdminTenantService = {
       throw error;
     }
 
+    // STORE.ACCESS is excluded — it's a login-redirect signal, not a
+    // capability, and a fresh tenant's Admin shouldn't silently start
+    // landing on /store. See shared/constants/permissions.ts.
     const permissionCatalog = await roleService.listPermissionCatalog();
     const adminRole = await roleService.create({
       tenantId: tenant.id,
       name: "Admin",
       code: "ADMIN",
-      permissionCodes: permissionCatalog.map((p) => p.code),
+      permissionCodes: permissionCatalog
+        .map((p) => p.code)
+        .filter((code) => !NON_INHERITABLE_PERMISSION_CODES.has(code)),
     });
 
     await userService.create({
