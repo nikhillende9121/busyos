@@ -1,0 +1,52 @@
+"use client";
+
+import { createContext, useContext, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { apiClient } from "@/lib/api/client";
+import { queryKeys } from "@/lib/api/query-keys";
+// Type-only import: erased at compile time, so this pulls in zero backend
+// runtime code — just reuses the exact shape GET /api/v1/auth/me returns
+// instead of redefining it here and risking drift.
+import type { MeView } from "@/modules/auth/types/auth.types";
+
+type AuthContextValue = {
+  user: MeView | undefined;
+  isLoading: boolean;
+  // Backed by the caller's real permission list (shared/middleware/rbac-lookup.ts,
+  // via GET /api/v1/auth/me) — used to hide nav items/buttons the user's
+  // role doesn't hold. Not the enforcement boundary: withApiAuth still
+  // checks every request server-side regardless of what this returns.
+  can: (permissionCode: string) => boolean;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  // Mounted globally (app/providers.tsx), so it also wraps /super-admin/**
+  // — an entirely separate identity (see shared/middleware/with-super-admin-auth.ts)
+  // with no tenant session cookie at all. Fetching /auth/me there would
+  // always 401 and, worse, bounce the visitor to the tenant /login page.
+  const pathname = usePathname();
+  const isSuperAdminArea = pathname?.startsWith("/super-admin") ?? false;
+
+  const { data, isLoading } = useQuery({
+    queryKey: queryKeys.me,
+    queryFn: () => apiClient.get<MeView>("/auth/me"),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+    enabled: !isSuperAdminArea,
+  });
+
+  const can = (permissionCode: string) => data?.permissions.includes(permissionCode) ?? false;
+
+  return <AuthContext.Provider value={{ user: data, isLoading, can }}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth(): AuthContextValue {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within AuthProvider");
+  }
+  return context;
+}

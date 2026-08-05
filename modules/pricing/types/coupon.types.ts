@@ -1,0 +1,20 @@
+export type CouponView = {
+  id: string;
+  code: string;
+  type: string;
+  value: string;
+  scope: string;
+  warehouseId: string | null;
+  customerGroupId: string | null;
+  customerId: string | null;
+  productIds: string[];
+  categoryIds: string[];
+  minPurchaseAmount: string | null;
+  maxDiscountAmount: string | null;
+  usageLimitTotal: number | null;
+  usageLimitPerCustomer: number | null;
+  startDate: string;
+  endDate: string | null;
+  isActive: boolean;
+  stackable: boolean;
+};

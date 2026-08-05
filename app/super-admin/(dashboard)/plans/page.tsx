@@ -1,0 +1,185 @@
+"use client";
+
+import { useState } from "react";
+import { useForm, Controller } from "react-hook-form";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
+import { superAdminApiClient } from "@/lib/api/super-admin-client";
+import { ApiError } from "@/lib/api/client";
+import type { PlanView } from "@/modules/super-admin/types/plan.types";
+import type { FeatureView } from "@/modules/super-admin/types/feature.types";
+
+type CreatePlanFormValues = { name: string; price: string; billingCycle: string; featureCodes: string[] };
+
+const columns: DataTableColumn<PlanView>[] = [
+  { key: "name", header: "Name" },
+  { key: "price", header: "Price" },
+  { key: "billingCycle", header: "Billing" },
+  {
+    key: "features",
+    header: "Features",
+    render: (row) => (
+      <div className="flex flex-wrap gap-1">
+        {row.features.length === 0 ? "—" : row.features.map((code) => <Badge key={code} variant="outline">{code}</Badge>)}
+      </div>
+    ),
+  },
+];
+
+export default function SuperAdminPlansPage() {
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const { data: plans, isLoading } = useQuery({
+    queryKey: ["super-admin", "plans"],
+    queryFn: () => superAdminApiClient.get<PlanView[]>("/plans"),
+  });
+  const { data: features } = useQuery({
+    queryKey: ["super-admin", "features"],
+    queryFn: () => superAdminApiClient.get<FeatureView[]>("/features"),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (values: CreatePlanFormValues) => superAdminApiClient.post<PlanView>("/plans", values),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["super-admin", "plans"] });
+      toast.success("Plan created");
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold font-heading">Plans</h1>
+          <p className="text-muted-foreground">Subscription plans, and which features each one includes.</p>
+        </div>
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus /> New plan
+        </Button>
+      </div>
+
+      <DataTable columns={columns} rows={plans ?? []} isLoading={isLoading} getRowId={(row) => row.id} emptyMessage="No plans yet." />
+
+      {createOpen && (
+        <CreatePlanDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          features={features ?? []}
+          onSubmit={async (values) => {
+            await createMutation.mutateAsync(values);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CreatePlanDialog({
+  open,
+  onOpenChange,
+  features,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  features: FeatureView[];
+  onSubmit: (values: CreatePlanFormValues) => Promise<void>;
+}) {
+  const form = useForm<CreatePlanFormValues>({
+    defaultValues: { name: "", price: "", billingCycle: "MONTHLY", featureCodes: [] },
+  });
+
+  const handleSubmit = async (values: CreatePlanFormValues) => {
+    try {
+      await onSubmit(values);
+      onOpenChange(false);
+      form.reset();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>New plan</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="name">Name</Label>
+            <Input id="name" placeholder="Starter" {...form.register("name", { required: true })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="price">Price</Label>
+              <Input id="price" placeholder="999.00" {...form.register("price", { required: true })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Billing cycle</Label>
+              <Controller
+                control={form.control}
+                name="billingCycle"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="MONTHLY">Monthly</SelectItem>
+                      <SelectItem value="YEARLY">Yearly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Features included</Label>
+            <Controller
+              control={form.control}
+              name="featureCodes"
+              render={({ field }) => (
+                <div className="grid grid-cols-2 gap-1.5 rounded-md border p-3 sm:grid-cols-3">
+                  {features.map((feature) => (
+                    <label key={feature.code} className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={field.value.includes(feature.code)}
+                        onCheckedChange={(checked) => {
+                          field.onChange(
+                            checked
+                              ? [...field.value, feature.code]
+                              : field.value.filter((code) => code !== feature.code),
+                          );
+                        }}
+                      />
+                      {feature.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={form.formState.isSubmitting}>
+              {form.formState.isSubmitting ? "Creating…" : "Create plan"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

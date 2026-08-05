@@ -1,0 +1,1676 @@
+// Prisma schema derived from DATABSE.md (Database Design & Relationships).
+// Architecture: Shared Database, Shared Schema multi-tenancy (see DATABSE.md).
+//
+// Scaling decisions (see Docs/DATABASE.md for full rationale):
+// - BigInt autoincrement PKs everywhere: cheapest clustered-index writes at
+//   millions-of-rows scale, avoids UUID index fragmentation in MySQL/InnoDB.
+// - Every business table carries tenantId with a composite index so the
+//   tenant-scoped query path never falls back to a full scan.
+// - inventory_transactions and audit_logs are designed as append-only ledgers.
+//   At high volume, partition them by createdAt (RANGE partitioning) via a
+//   raw follow-up migration — Prisma's schema DSL cannot express PARTITION BY.
+// - createdBy / updatedBy are plain unenforced BigInt columns, not relations.
+//   Enforcing FKs to User from every table creates circular init problems
+//   (who created the first user?) and forces named relations everywhere.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: connection URL is no longer read from this block. The CLI
+// (migrate/studio) reads it from prisma.config.ts; the runtime PrismaClient
+// connects via a driver adapter passed to its constructor — see
+// shared/database/prisma.ts. See Docs/DATABASE.md -> Prisma 7 Driver Adapters.
+datasource db {
+  provider = "mysql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum TenantStatus {
+  ACTIVE
+  TRIAL
+  SUSPENDED
+  CANCELLED
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  INVITED
+}
+
+enum SuperAdminStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DISCONTINUED
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIAL
+  EXPIRED
+  CANCELLED
+}
+
+enum PurchaseStatus {
+  DRAFT
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+// Superset of statuses across every channel. POS sales typically only ever
+// pass through DRAFT -> CONFIRMED -> COMPLETED; the PENDING_PAYMENT ..
+// DELIVERED states exist for ONLINE/MARKETPLACE order fulfillment. See
+// Docs/business-rules/sales.md for the per-channel subset each uses.
+enum SaleStatus {
+  PENDING_PAYMENT
+  DRAFT
+  CONFIRMED
+  PROCESSING
+  PACKED
+  PARTIALLY_SHIPPED
+  SHIPPED
+  DELIVERED
+  COMPLETED
+  CANCELLED
+}
+
+enum SaleChannel {
+  POS
+  ONLINE
+  MARKETPLACE
+  PHONE
+}
+
+enum CashSessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum DeliveryProviderType {
+  SHIPROCKET
+  DELHIVERY
+  DUNZO
+  PORTER
+  MANUAL
+  CUSTOM
+}
+
+enum ShipmentStatus {
+  PENDING
+  BOOKED
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RETURNED
+  CANCELLED
+}
+
+// DRAFT: requested — toWarehouse known, fromWarehouse not chosen yet.
+// APPROVED: fromWarehouse selected + approvedQuantity set per line; stock
+// not yet moved. IN_TRANSIT: shipped, stock deducted from source.
+// COMPLETED: received, stock credited to destination. See
+// Docs/business-rules/stock-transfer.md.
+enum StockTransferStatus {
+  DRAFT
+  APPROVED
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+}
+
+enum InventoryTransactionType {
+  PURCHASE_IN
+  SALE_OUT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  TRANSFER_IN
+  TRANSFER_OUT
+  PURCHASE_RETURN_OUT
+  SALE_RETURN_IN
+}
+
+enum ReferenceType {
+  PURCHASE
+  SALE
+  STOCK_ADJUSTMENT
+  STOCK_TRANSFER
+  PURCHASE_RETURN
+  SALE_RETURN
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  UPI
+  CHEQUE
+  CREDIT
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FLAT
+}
+
+enum CouponType {
+  PERCENTAGE
+  FLAT
+  FREE_SHIPPING
+}
+
+// What a Discount/Coupon targets. See Docs/business-rules/discounts-and-coupons.md.
+// PRODUCT/CATEGORY scope requires matching DiscountProduct/DiscountCategory
+// (or CouponProduct/CouponCategory) rows — the enum alone doesn't carry the
+// target, it only says whether target rows are expected.
+enum PromotionScope {
+  ORDER
+  PRODUCT
+  CATEGORY
+}
+
+// CGST+SGST (split in half) when the warehouse and customer are in the same
+// state, IGST (full rate) when they differ — the actual legal mechanic of
+// Indian GST, not a simplification. CESS is a separate optional component on
+// top (luxury/sin goods) — see TaxRate.cessPercent.
+enum TaxComponent {
+  CGST
+  SGST
+  IGST
+  CESS
+}
+
+enum ExtraChargeCalcType {
+  FLAT
+  PERCENTAGE
+}
+
+// ---------------------------------------------------------------------------
+// System Tables — platform-owned, no tenantId. Super Admin only.
+// ---------------------------------------------------------------------------
+
+// The one identity in the system that isn't tenant-scoped — see
+// Docs/business-rules/roles-and-permissions.md -> Super Admin. Deliberately
+// separate from User/Role (no tenantId, no RolePermission): a flat single
+// identity type in v1, not a second RBAC system for platform staff.
+model SuperAdmin {
+  id        BigInt           @id @default(autoincrement())
+  name      String           @db.VarChar(150)
+  email     String           @unique @db.VarChar(190)
+  password  String           @db.VarChar(255)
+  status    SuperAdminStatus @default(ACTIVE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@map("super_admins")
+}
+
+model Plan {
+  id           BigInt       @id @default(autoincrement())
+  name         String       @db.VarChar(100)
+  price        Decimal      @db.Decimal(12, 2)
+  billingCycle BillingCycle
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  planFeatures        PlanFeature[]
+  tenantSubscriptions TenantSubscription[]
+
+  @@map("plans")
+}
+
+model Feature {
+  id        BigInt   @id @default(autoincrement())
+  name      String   @db.VarChar(100)
+  code      String   @unique @db.VarChar(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planFeatures   PlanFeature[]
+  tenantFeatures TenantFeature[]
+
+  @@map("features")
+}
+
+model PlanFeature {
+  planId    BigInt
+  featureId BigInt
+  createdAt DateTime @default(now())
+
+  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@id([planId, featureId])
+  @@index([featureId])
+  @@map("plan_features")
+}
+
+// Permission catalog, e.g. PRODUCT.CREATE, INVENTORY.ADJUST — system-owned,
+// module-scoped, never tenant-scoped. Roles are tenant-scoped and pick from
+// this catalog via RolePermission.
+model Permission {
+  id        BigInt   @id @default(autoincrement())
+  module    String   @db.VarChar(50)
+  action    String   @db.VarChar(50)
+  code      String   @unique @db.VarChar(100)
+  createdAt DateTime @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model SystemSetting {
+  id        BigInt   @id @default(autoincrement())
+  key       String   @unique @db.VarChar(150)
+  value     String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// Shared lookup data (e.g. "pcs", "kg", "box"). Not tenant-scoped by default;
+// tenantId is nullable so a tenant can add a custom unit without forking the
+// whole table.
+model Unit {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt?
+  name      String   @db.VarChar(50)
+  symbol    String   @db.VarChar(10)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@index([tenantId])
+  @@map("units")
+}
+
+// ---------------------------------------------------------------------------
+// Tenant Tables
+// ---------------------------------------------------------------------------
+
+model Tenant {
+  id           BigInt       @id @default(autoincrement())
+  name         String       @db.VarChar(150)
+  code         String       @unique @db.VarChar(50)
+  status       TenantStatus @default(TRIAL)
+  // Cloudinary public_id, set by the Super Admin (see
+  // modules/super-admin/service/tenant.service.ts's uploadLogo/removeLogo)
+  // and shown at the top of every tenant user's sidebar (see
+  // modules/auth/service/auth.service.ts's me()).
+  logoPublicId String?      @db.VarChar(255)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+
+  settings              TenantSetting?
+  features              TenantFeature[]
+  subscriptions         TenantSubscription[]
+  units                 Unit[]
+  users                 User[]
+  roles                 Role[]
+  warehouses            Warehouse[]
+  categories            Category[]
+  brands                Brand[]
+  products              Product[]
+  customers             Customer[]
+  suppliers             Supplier[]
+  purchases             Purchase[]
+  sales                 Sale[]
+  inventoryBalances     InventoryBalance[]
+  inventoryTransactions InventoryTransaction[]
+  stockAdjustments      StockAdjustment[]
+  stockTransfers        StockTransfer[]
+  payments              Payment[]
+  auditLogs             AuditLog[]
+  notifications         Notification[]
+  attachments           Attachment[]
+  terminals             Terminal[]
+  cashSessions          CashSession[]
+  tenantDeliveryConfigs TenantDeliveryConfig[]
+  shipments             Shipment[]
+  idempotencyKeys       IdempotencyKey[]
+  customerGroups        CustomerGroup[]
+  priceLists            PriceList[]
+  discounts             Discount[]
+  coupons               Coupon[]
+  couponRedemptions     CouponRedemption[]
+  saleDiscounts         SaleDiscount[]
+  taxRates              TaxRate[]
+  extraCharges          ExtraCharge[]
+
+  @@map("tenants")
+}
+
+// Company-specific configuration (GST, currency, invoice prefix, etc.) — one
+// row per tenant, kept off the Tenant table itself so it can grow without
+// touching the hot tenant-lookup row.
+model TenantSetting {
+  id                  BigInt   @id @default(autoincrement())
+  tenantId            BigInt   @unique
+  companyName         String?  @db.VarChar(150)
+  gstNumber           String?  @db.VarChar(30)
+  currency            String   @default("INR") @db.VarChar(10)
+  timezone            String   @default("Asia/Kolkata") @db.VarChar(50)
+  invoicePrefix       String?  @db.VarChar(20)
+  decimalPrecision    Int      @default(2)
+  // The tenant's own registered state — used as the seller-side state for
+  // the CGST/SGST-vs-IGST split whenever a Warehouse has no state of its
+  // own set (see modules/pricing/service/tax.service.ts).
+  homeState           String?  @db.VarChar(50)
+  // Whether PriceListItem.price already includes tax (true) or tax is
+  // always additive on top (false) — the tenant-wide rule
+  // Docs/business-rules/pricing.md's "Open Decisions" flagged as
+  // unresolved; this field is the resolution.
+  taxInclusivePricing Boolean  @default(false)
+  // Fallback tax rate for a Product with no taxRateId of its own. Tax
+  // calculation errors (not silently 0%) if a line has neither.
+  defaultTaxRateId    BigInt?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  defaultTaxRate TaxRate? @relation(fields: [defaultTaxRateId], references: [id], onDelete: SetNull)
+
+  @@index([defaultTaxRateId])
+  @@map("tenant_settings")
+}
+
+model TenantFeature {
+  tenantId  BigInt
+  featureId BigInt
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, featureId])
+  @@index([featureId])
+  @@map("tenant_features")
+}
+
+model TenantSubscription {
+  id        BigInt             @id @default(autoincrement())
+  tenantId  BigInt
+  planId    BigInt
+  startDate DateTime
+  endDate   DateTime
+  status    SubscriptionStatus @default(TRIAL)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([planId])
+  @@map("tenant_subscriptions")
+}
+
+// ---------------------------------------------------------------------------
+// Authentication & RBAC
+// ---------------------------------------------------------------------------
+
+model Role {
+  id        BigInt    @id @default(autoincrement())
+  tenantId  BigInt
+  name      String    @db.VarChar(100)
+  code      String    @db.VarChar(100)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       BigInt
+  permissionId BigInt
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id          BigInt     @id @default(autoincrement())
+  tenantId    BigInt
+  roleId      BigInt
+  // null = unrestricted, acts at any of the tenant's warehouses (e.g. a
+  // tenant admin); set = restricted to that one store (e.g. a mobile
+  // store manager) — see Docs/business-rules/roles-and-permissions.md ->
+  // Warehouse-Scoped Users. Checked fresh per-request
+  // (shared/middleware/with-api-auth.ts), never cached in the JWT, same
+  // rule as permission checks.
+  warehouseId BigInt?
+  name        String     @db.VarChar(150)
+  email       String     @db.VarChar(190)
+  password    String     @db.VarChar(255)
+  status      UserStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  createdBy   BigInt?
+  updatedBy   BigInt?
+  deletedAt   DateTime?
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role      Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  auditLogs     AuditLog[]
+  notifications Notification[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([roleId])
+  @@index([warehouseId])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Warehouse
+// ---------------------------------------------------------------------------
+
+model Warehouse {
+  id        BigInt    @id @default(autoincrement())
+  tenantId  BigInt
+  name      String    @db.VarChar(150)
+  code      String    @db.VarChar(50)
+  address   String?   @db.Text
+  // The state this warehouse/GSTIN is registered in — compared against
+  // Customer.state to decide CGST+SGST (same state) vs IGST (different
+  // state) on every sale from this store. Falls back to
+  // TenantSetting.homeState when unset — see modules/pricing/service/tax.service.ts.
+  state     String?   @db.VarChar(50)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy BigInt?
+  updatedBy BigInt?
+  deletedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  purchases             Purchase[]
+  sales                 Sale[]
+  inventoryBalances     InventoryBalance[]
+  inventoryTransactions InventoryTransaction[]
+  stockAdjustments      StockAdjustment[]
+  transfersFrom         StockTransfer[]        @relation("TransferFromWarehouse")
+  transfersTo           StockTransfer[]        @relation("TransferToWarehouse")
+  terminals             Terminal[]
+  priceLists            PriceList[]
+  discounts             Discount[]
+  coupons               Coupon[]
+  scopedUsers           User[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("warehouses")
+}
+
+// ---------------------------------------------------------------------------
+// POS — Terminals & Cash Sessions
+//
+// A Terminal is a registered POS device/register tied to one warehouse. A
+// CashSession is one cashier shift on that terminal (open float -> sales ->
+// close count), used for end-of-shift cash reconciliation. Sale.terminalId /
+// Sale.cashSessionId (below) are nullable because ONLINE/MARKETPLACE sales
+// have neither.
+// ---------------------------------------------------------------------------
+
+model Terminal {
+  id          BigInt    @id @default(autoincrement())
+  tenantId    BigInt
+  warehouseId BigInt
+  name        String    @db.VarChar(100)
+  code        String    @db.VarChar(50)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  cashSessions CashSession[]
+  sales        Sale[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@map("terminals")
+}
+
+model CashSession {
+  id           BigInt            @id @default(autoincrement())
+  tenantId     BigInt
+  terminalId   BigInt
+  openedBy     BigInt
+  closedBy     BigInt?
+  openingFloat Decimal           @db.Decimal(14, 2)
+  closingCash  Decimal?          @db.Decimal(14, 2)
+  expectedCash Decimal?          @db.Decimal(14, 2)
+  variance     Decimal?          @db.Decimal(14, 2)
+  status       CashSessionStatus @default(OPEN)
+  openedAt     DateTime          @default(now())
+  closedAt     DateTime?
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  terminal Terminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+  sales    Sale[]
+
+  @@index([tenantId])
+  @@index([terminalId])
+  @@index([status])
+  @@map("cash_sessions")
+}
+
+// ---------------------------------------------------------------------------
+// Product Catalog
+// ---------------------------------------------------------------------------
+
+model Category {
+  id            BigInt    @id @default(autoincrement())
+  tenantId      BigInt
+  parentId      BigInt?
+  name          String    @db.VarChar(150)
+  // Cloudinary public_id — one image per category (see
+  // modules/product/service/category.service.ts's uploadImage/removeImage).
+  imagePublicId String?   @db.VarChar(255)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent             Category?          @relation("CategoryToParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children           Category[]         @relation("CategoryToParent")
+  products           Product[]
+  discountCategories DiscountCategory[]
+  couponCategories   CouponCategory[]
+
+  @@index([tenantId])
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Brand {
+  id            BigInt    @id @default(autoincrement())
+  tenantId      BigInt
+  name          String    @db.VarChar(150)
+  // Cloudinary public_id — one image per brand (see
+  // modules/product/service/brand.service.ts's uploadImage/removeImage).
+  imagePublicId String?   @db.VarChar(255)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@index([tenantId])
+  @@map("brands")
+}
+
+model Product {
+  id         BigInt        @id @default(autoincrement())
+  tenantId   BigInt
+  categoryId BigInt?
+  brandId    BigInt?
+  unitId     BigInt?
+  taxRateId  BigInt?
+  sku        String        @db.VarChar(100)
+  barcode    String?       @db.VarChar(100)
+  name       String        @db.VarChar(200)
+  status     ProductStatus @default(ACTIVE)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  createdBy  BigInt?
+  updatedBy  BigInt?
+  deletedAt  DateTime?
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brand    Brand?    @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  unit     Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  taxRate  TaxRate?  @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+
+  inventoryBalances     InventoryBalance[]
+  inventoryTransactions InventoryTransaction[]
+  purchaseItems         PurchaseItem[]
+  saleItems             SaleItem[]
+  stockAdjustmentItems  StockAdjustmentItem[]
+  stockTransferItems    StockTransferItem[]
+  priceListItems        PriceListItem[]
+  discountProducts      DiscountProduct[]
+  couponProducts        CouponProduct[]
+  images                ProductImage[]
+
+  @@unique([tenantId, sku])
+  @@unique([tenantId, barcode])
+  @@index([tenantId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([taxRateId])
+  @@map("products")
+}
+
+// Catalog photos — stored in Cloudinary (shared/utils/cloudinary.ts), only
+// the public_id lives here. Lowest sortOrder is the primary/thumbnail image
+// (see modules/product/service/product-image.service.ts's makePrimary,
+// which swaps sortOrder rather than maintaining a separate "isPrimary"
+// flag).
+model ProductImage {
+  id        BigInt   @id @default(autoincrement())
+  productId BigInt
+  publicId  String   @db.VarChar(255)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+// ---------------------------------------------------------------------------
+// Taxation & Extra Charges
+//
+// Both are tenant-defined catalogs (no hardcoded GST slabs) — see
+// Docs/business-rules/taxation.md. TaxRate drives the CGST+SGST vs IGST
+// split (Warehouse.state vs Customer.state, see modules/pricing/service/
+// tax.service.ts); ExtraCharge is a separate, optional catalog for
+// per-invoice charges like shipping/packing that are NOT tax, though a
+// charge can itself be marked taxable against one of these same rates.
+// ---------------------------------------------------------------------------
+
+model TaxRate {
+  id          BigInt    @id @default(autoincrement())
+  tenantId    BigInt
+  name        String    @db.VarChar(100)
+  hsnCode     String?   @db.VarChar(20)
+  sacCode     String?   @db.VarChar(20)
+  ratePercent Decimal   @db.Decimal(5, 2)
+  cessPercent Decimal   @default(0) @db.Decimal(5, 2)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  createdBy   BigInt?
+  updatedBy   BigInt?
+  deletedAt   DateTime?
+
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products          Product[]
+  extraCharges      ExtraCharge[]
+  saleItemTaxes     SaleItemTax[]
+  purchaseItemTaxes PurchaseItemTax[]
+  saleCharges       SaleCharge[]
+  purchaseCharges   PurchaseCharge[]
+  defaultForTenants TenantSetting[]
+
+  @@index([tenantId])
+  @@index([isActive])
+  @@map("tax_rates")
+}
+
+model ExtraCharge {
+  id        BigInt              @id @default(autoincrement())
+  tenantId  BigInt
+  name      String              @db.VarChar(100)
+  calcType  ExtraChargeCalcType
+  value     Decimal             @db.Decimal(14, 2)
+  isTaxable Boolean             @default(false)
+  taxRateId BigInt?
+  isActive  Boolean             @default(true)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  createdBy BigInt?
+  updatedBy BigInt?
+  deletedAt DateTime?
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  taxRate         TaxRate?         @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+  saleCharges     SaleCharge[]
+  purchaseCharges PurchaseCharge[]
+
+  @@index([tenantId])
+  @@index([isActive])
+  @@index([taxRateId])
+  @@map("extra_charges")
+}
+
+// ---------------------------------------------------------------------------
+// Pricing & Promotions
+//
+// See Docs/business-rules/pricing.md and Docs/business-rules/discounts-and-coupons.md
+// for the full design and worked examples. Summary:
+// - Base price is never a column on Product — it's resolved from PriceList /
+//   PriceListItem, scoped by warehouse (per-store pricing), CustomerGroup
+//   (tier pricing), or a specific Customer (rare negotiated-contract
+//   exception). Resolution walks most-specific match down to a mandatory
+//   tenant-wide default (see pricing.md -> Price Resolution Order).
+// - Discount (automatic) and Coupon (code-redeemed) share the same scope
+//   shape (warehouse / customer group / specific customer / product /
+//   category) but are modeled separately because usage-tracking semantics
+//   differ — a Coupon has redemptions to count against usage limits, a
+//   Discount does not.
+// ---------------------------------------------------------------------------
+
+model CustomerGroup {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt
+  name      String   @db.VarChar(100)
+  code      String   @db.VarChar(50)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customers  Customer[]
+  priceLists PriceList[]
+  discounts  Discount[]
+  coupons    Coupon[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("customer_groups")
+}
+
+// Exactly one PriceList per tenant should have isDefault = true with no
+// warehouseId/customerGroupId/customerId set — the service layer must
+// refuse to delete or deactivate the last such row, since every product
+// needs a fallback price. See pricing.md -> Price Resolution Order for how
+// warehouseId/customerGroupId/customerId combine to pick a match.
+model PriceList {
+  id              BigInt    @id @default(autoincrement())
+  tenantId        BigInt
+  name            String    @db.VarChar(150)
+  warehouseId     BigInt?
+  customerGroupId BigInt?
+  customerId      BigInt?
+  currency        String    @default("INR") @db.VarChar(10)
+  isDefault       Boolean   @default(false)
+  startDate       DateTime?
+  endDate         DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse     Warehouse?      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  customerGroup CustomerGroup?  @relation(fields: [customerGroupId], references: [id], onDelete: Cascade)
+  customer      Customer?       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items         PriceListItem[]
+
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@index([customerGroupId])
+  @@index([customerId])
+  @@map("price_lists")
+}
+
+// minQuantity supports tiered quantity pricing (e.g. 90/unit at 10+) without
+// a schema change later — default 1 means "the price at any quantity" until
+// a tenant actually adds tiers.
+model PriceListItem {
+  id          BigInt  @id @default(autoincrement())
+  priceListId BigInt
+  productId   BigInt
+  price       Decimal @db.Decimal(14, 2)
+  minQuantity Decimal @default(1) @db.Decimal(18, 4)
+
+  priceList PriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([priceListId, productId, minQuantity])
+  @@index([productId])
+  @@map("price_list_items")
+}
+
+model Discount {
+  id                BigInt         @id @default(autoincrement())
+  tenantId          BigInt
+  name              String         @db.VarChar(150)
+  type              DiscountType
+  value             Decimal        @db.Decimal(10, 2)
+  scope             PromotionScope
+  warehouseId       BigInt?
+  customerGroupId   BigInt?
+  customerId        BigInt?
+  minPurchaseAmount Decimal?       @db.Decimal(14, 2)
+  maxDiscountAmount Decimal?       @db.Decimal(14, 2)
+  startDate         DateTime
+  endDate           DateTime?
+  isActive          Boolean        @default(true)
+  stackable         Boolean        @default(false)
+  priority          Int            @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse     Warehouse?         @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  customerGroup CustomerGroup?     @relation(fields: [customerGroupId], references: [id], onDelete: Cascade)
+  customer      Customer?          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  products      DiscountProduct[]
+  categories    DiscountCategory[]
+  saleDiscounts SaleDiscount[]
+
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@index([customerGroupId])
+  @@index([isActive, startDate, endDate])
+  @@map("discounts")
+}
+
+model DiscountProduct {
+  discountId BigInt
+  productId  BigInt
+
+  discount Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([discountId, productId])
+  @@index([productId])
+  @@map("discount_products")
+}
+
+model DiscountCategory {
+  discountId BigInt
+  categoryId BigInt
+
+  discount Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([discountId, categoryId])
+  @@index([categoryId])
+  @@map("discount_categories")
+}
+
+// code is unique per tenant, not globally — see pricing/discounts docs.
+model Coupon {
+  id                    BigInt         @id @default(autoincrement())
+  tenantId              BigInt
+  code                  String         @db.VarChar(50)
+  type                  CouponType
+  value                 Decimal        @db.Decimal(10, 2)
+  scope                 PromotionScope
+  warehouseId           BigInt?
+  customerGroupId       BigInt?
+  customerId            BigInt?
+  minPurchaseAmount     Decimal?       @db.Decimal(14, 2)
+  maxDiscountAmount     Decimal?       @db.Decimal(14, 2)
+  usageLimitTotal       Int?
+  usageLimitPerCustomer Int?
+  startDate             DateTime
+  endDate               DateTime?
+  isActive              Boolean        @default(true)
+  stackable             Boolean        @default(false)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse     Warehouse?         @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  customerGroup CustomerGroup?     @relation(fields: [customerGroupId], references: [id], onDelete: Cascade)
+  customer      Customer?          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  products      CouponProduct[]
+  categories    CouponCategory[]
+  redemptions   CouponRedemption[]
+  saleDiscounts SaleDiscount[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@index([customerGroupId])
+  @@map("coupons")
+}
+
+model CouponProduct {
+  couponId  BigInt
+  productId BigInt
+
+  coupon  Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, productId])
+  @@index([productId])
+  @@map("coupon_products")
+}
+
+model CouponCategory {
+  couponId   BigInt
+  categoryId BigInt
+
+  coupon   Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, categoryId])
+  @@index([categoryId])
+  @@map("coupon_categories")
+}
+
+// usageLimitTotal/usageLimitPerCustomer must be enforced by COUNTING rows
+// here inside the same transaction as the Sale write, not a mutable counter
+// on Coupon — see Docs/business-rules/discounts-and-coupons.md -> Concurrency.
+model CouponRedemption {
+  id               BigInt   @id @default(autoincrement())
+  couponId         BigInt
+  tenantId         BigInt
+  customerId       BigInt?
+  saleId           BigInt
+  amountDiscounted Decimal  @db.Decimal(14, 2)
+  redeemedAt       DateTime @default(now())
+
+  coupon   Coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  sale     Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, saleId])
+  @@index([tenantId])
+  @@index([customerId])
+  @@map("coupon_redemptions")
+}
+
+// ---------------------------------------------------------------------------
+// Inventory — event-sourced. inventory_transactions is an append-only ledger;
+// inventory_balance is the derived, mutable current-state snapshot kept in
+// sync by the Inventory module's service layer inside the same DB transaction
+// that writes the ledger row. Never write history backwards.
+// ---------------------------------------------------------------------------
+
+model InventoryBalance {
+  id          BigInt   @id @default(autoincrement())
+  tenantId    BigInt
+  warehouseId BigInt
+  productId   BigInt
+  quantity    Decimal  @default(0) @db.Decimal(18, 4)
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, productId])
+  @@index([tenantId])
+  @@map("inventory_balance")
+}
+
+model InventoryTransaction {
+  id              BigInt                   @id @default(autoincrement())
+  tenantId        BigInt
+  warehouseId     BigInt
+  productId       BigInt
+  transactionType InventoryTransactionType
+  quantity        Decimal                  @db.Decimal(18, 4)
+  referenceType   ReferenceType
+  referenceId     BigInt
+  createdAt       DateTime                 @default(now())
+  createdBy       BigInt?
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Candidate for RANGE partitioning by createdAt once row count grows into
+  // the tens of millions — apply via a raw SQL migration, not this schema.
+  @@index([tenantId, warehouseId])
+  @@index([tenantId, productId])
+  @@index([referenceType, referenceId])
+  @@index([createdAt])
+  @@map("inventory_transactions")
+}
+
+model StockAdjustment {
+  id          BigInt   @id @default(autoincrement())
+  tenantId    BigInt
+  warehouseId BigInt
+  reason      String   @db.VarChar(255)
+  createdAt   DateTime @default(now())
+  createdBy   BigInt?
+
+  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse Warehouse             @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  items     StockAdjustmentItem[]
+
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@map("stock_adjustments")
+}
+
+model StockAdjustmentItem {
+  id           BigInt  @id @default(autoincrement())
+  adjustmentId BigInt
+  productId    BigInt
+  quantity     Decimal @db.Decimal(18, 4)
+
+  adjustment StockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+  product    Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([adjustmentId])
+  @@index([productId])
+  @@map("stock_adjustment_items")
+}
+
+// Not enumerated in DATABSE.md's table list, but required by its own
+// "Warehouse Flow" (Warehouse -> Stock -> Transfers -> Adjustments) — added
+// here to close that gap. Flag this addition to the team when reviewing.
+model StockTransfer {
+  id              BigInt              @id @default(autoincrement())
+  tenantId        BigInt
+  // Nullable — unset until approve() picks the source warehouse; only
+  // toWarehouseId is known at request time.
+  fromWarehouseId BigInt?
+  toWarehouseId   BigInt
+  status          StockTransferStatus @default(DRAFT)
+  transferDate    DateTime
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  createdBy       BigInt?
+
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fromWarehouse Warehouse?          @relation("TransferFromWarehouse", fields: [fromWarehouseId], references: [id], onDelete: Restrict)
+  toWarehouse   Warehouse           @relation("TransferToWarehouse", fields: [toWarehouseId], references: [id], onDelete: Restrict)
+  items         StockTransferItem[]
+
+  @@index([tenantId])
+  @@index([fromWarehouseId])
+  @@index([toWarehouseId])
+  @@map("stock_transfers")
+}
+
+// Four quantities, one per lifecycle stage — each capped by the previous
+// (approved <= requested, shipped <= approved, received <= shipped),
+// enforced in modules/inventory/service/stock-transfer.service.ts, not the
+// database. Null until that stage happens.
+model StockTransferItem {
+  id                BigInt   @id @default(autoincrement())
+  transferId        BigInt
+  productId         BigInt
+  requestedQuantity Decimal  @db.Decimal(18, 4)
+  approvedQuantity  Decimal? @db.Decimal(18, 4)
+  shippedQuantity   Decimal? @db.Decimal(18, 4)
+  receivedQuantity  Decimal? @db.Decimal(18, 4)
+
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  product  Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([transferId])
+  @@index([productId])
+  @@map("stock_transfer_items")
+}
+
+// ---------------------------------------------------------------------------
+// Supplier / Customer
+// ---------------------------------------------------------------------------
+
+model Supplier {
+  id        BigInt    @id @default(autoincrement())
+  tenantId  BigInt
+  name      String    @db.VarChar(150)
+  email     String?   @db.VarChar(190)
+  phone     String?   @db.VarChar(30)
+  // Supplier's registered state — compared against the receiving
+  // Warehouse.state to decide CGST+SGST vs IGST (input tax credit) on
+  // every purchase from this supplier, mirroring Customer.state's role on
+  // the sales side.
+  state     String?   @db.VarChar(50)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchases Purchase[]
+
+  @@index([tenantId])
+  @@map("suppliers")
+}
+
+model Customer {
+  id              BigInt    @id @default(autoincrement())
+  tenantId        BigInt
+  customerGroupId BigInt?
+  name            String    @db.VarChar(150)
+  phone           String?   @db.VarChar(30)
+  email           String?   @db.VarChar(190)
+  // Buyer's billing state — compared against the selling Warehouse.state to
+  // decide CGST+SGST vs IGST on every sale to this customer.
+  state           String?   @db.VarChar(50)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerGroup     CustomerGroup?     @relation(fields: [customerGroupId], references: [id], onDelete: SetNull)
+  sales             Sale[]
+  priceLists        PriceList[] // per-customer negotiated price overrides (rare exception, not the default)
+  discounts         Discount[] // per-customer promotion overrides (rare exception, not the default)
+  coupons           Coupon[] // per-customer promotion overrides (rare exception, not the default)
+  couponRedemptions CouponRedemption[]
+
+  @@index([tenantId])
+  @@index([customerGroupId])
+  @@map("customers")
+}
+
+// ---------------------------------------------------------------------------
+// Purchase Flow: Supplier -> Purchase -> Purchase Items -> Inventory
+// ---------------------------------------------------------------------------
+
+model Purchase {
+  id           BigInt         @id @default(autoincrement())
+  tenantId     BigInt
+  supplierId   BigInt
+  warehouseId  BigInt
+  status       PurchaseStatus @default(DRAFT)
+  purchaseDate DateTime
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  createdBy    BigInt?
+  updatedBy    BigInt?
+  deletedAt    DateTime?
+
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier  Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  warehouse Warehouse        @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items     PurchaseItem[]
+  returns   PurchaseReturn[]
+  payments  Payment[]        @relation("PurchasePayments")
+  charges   PurchaseCharge[]
+
+  @@index([tenantId])
+  @@index([supplierId])
+  @@index([warehouseId])
+  @@index([status])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id               BigInt  @id @default(autoincrement())
+  purchaseId       BigInt
+  productId        BigInt
+  quantity         Decimal @db.Decimal(18, 4)
+  // Tracks partial receiving progress — see Docs/business-rules/purchase.md:
+  // a purchase can be received in more than one shipment, and stock only
+  // increases by what was actually received, never the full ordered
+  // quantity up front.
+  receivedQuantity Decimal @default(0) @db.Decimal(18, 4)
+  // Tracks cumulative returned-to-supplier progress, mirroring
+  // receivedQuantity — a line can be returned across more than one
+  // PurchaseReturn, and only what was actually received can be returned
+  // (see Docs/business-rules/purchase-return.md).
+  returnedQuantity Decimal @default(0) @db.Decimal(18, 4)
+  price            Decimal @db.Decimal(14, 2)
+  // Pre-computed total of this line's PurchaseItemTax rows — see
+  // modules/pricing/service/tax.service.ts. Server-computed, never
+  // client-supplied.
+  tax              Decimal @default(0) @db.Decimal(14, 2)
+
+  purchase    Purchase             @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product     Product              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  returnItems PurchaseReturnItem[]
+  taxes       PurchaseItemTax[]
+
+  @@index([purchaseId])
+  @@index([productId])
+  @@map("purchase_items")
+}
+
+// Recorded at time of purchase — never recomputed from the live TaxRate
+// later (mirrors SaleItemTax/SaleDiscount's snapshot rule). One row per
+// applicable component: 2 for intra-state (CGST+SGST), 1 for inter-state
+// (IGST), +1 more if the rate's cessPercent is non-zero.
+model PurchaseItemTax {
+  id             BigInt       @id @default(autoincrement())
+  purchaseItemId BigInt
+  taxRateId      BigInt?
+  component      TaxComponent
+  ratePercent    Decimal      @db.Decimal(5, 2)
+  amount         Decimal      @db.Decimal(14, 2)
+  createdAt      DateTime     @default(now())
+
+  purchaseItem PurchaseItem @relation(fields: [purchaseItemId], references: [id], onDelete: Cascade)
+  taxRate      TaxRate?     @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseItemId])
+  @@index([taxRateId])
+  @@map("purchase_item_taxes")
+}
+
+// Invoice-level charge (shipping/packing/handling — NOT tax), snapshot of an
+// ExtraCharge catalog entry at the time it was attached to this purchase.
+model PurchaseCharge {
+  id            BigInt   @id @default(autoincrement())
+  purchaseId    BigInt
+  extraChargeId BigInt?
+  taxRateId     BigInt?
+  name          String   @db.VarChar(100)
+  amount        Decimal  @db.Decimal(14, 2)
+  taxAmount     Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt     DateTime @default(now())
+
+  purchase    Purchase     @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  extraCharge ExtraCharge? @relation(fields: [extraChargeId], references: [id], onDelete: SetNull)
+  taxRate     TaxRate?     @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseId])
+  @@index([extraChargeId])
+  @@map("purchase_charges")
+}
+
+// Order-level record (reason, who, when) — line-level detail (which
+// PurchaseItem, how much) lives in PurchaseReturnItem. No status field:
+// unlike Purchase's multi-step lifecycle, a return is recorded as a single
+// atomic event after the physical return already happened, so create =
+// process (see Docs/business-rules/purchase-return.md).
+model PurchaseReturn {
+  id         BigInt   @id @default(autoincrement())
+  purchaseId BigInt
+  reason     String   @db.VarChar(255)
+  createdAt  DateTime @default(now())
+  createdBy  BigInt?
+
+  purchase Purchase             @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  items    PurchaseReturnItem[]
+
+  @@index([purchaseId])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnItem {
+  id               BigInt  @id @default(autoincrement())
+  purchaseReturnId BigInt
+  purchaseItemId   BigInt
+  quantity         Decimal @db.Decimal(18, 4)
+
+  purchaseReturn PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  purchaseItem   PurchaseItem   @relation(fields: [purchaseItemId], references: [id], onDelete: Restrict)
+
+  @@index([purchaseReturnId])
+  @@index([purchaseItemId])
+  @@map("purchase_return_items")
+}
+
+// ---------------------------------------------------------------------------
+// Sales Flow: Customer -> Sale -> Sale Items -> Inventory
+// ---------------------------------------------------------------------------
+
+model Sale {
+  id            BigInt      @id @default(autoincrement())
+  tenantId      BigInt
+  customerId    BigInt
+  warehouseId   BigInt
+  terminalId    BigInt?
+  cashSessionId BigInt?
+  channel       SaleChannel @default(POS)
+  status        SaleStatus  @default(DRAFT)
+  saleDate      DateTime
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  createdBy     BigInt?
+  updatedBy     BigInt?
+  deletedAt     DateTime?
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer          Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  warehouse         Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  terminal          Terminal?          @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  cashSession       CashSession?       @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  items             SaleItem[]
+  returns           SaleReturn[]
+  payments          Payment[]          @relation("SalePayments")
+  shipments         Shipment[]
+  discounts         SaleDiscount[]
+  couponRedemptions CouponRedemption[]
+  charges           SaleCharge[]
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@index([warehouseId])
+  @@index([status])
+  @@index([channel])
+  @@map("sales")
+}
+
+model SaleItem {
+  id               BigInt  @id @default(autoincrement())
+  saleId           BigInt
+  productId        BigInt
+  quantity         Decimal @db.Decimal(18, 4)
+  // Tracks cumulative customer-returned progress — a line can be returned
+  // across more than one SaleReturn (see Docs/business-rules/sale-return.md).
+  returnedQuantity Decimal @default(0) @db.Decimal(18, 4)
+  price            Decimal @db.Decimal(14, 2)
+  // Pre-computed total of this line's SaleItemTax rows — see
+  // modules/pricing/service/tax.service.ts. Server-computed, never
+  // client-supplied.
+  tax              Decimal @default(0) @db.Decimal(14, 2)
+
+  sale        Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product     Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  discounts   SaleDiscount[]
+  returnItems SaleReturnItem[]
+  taxes       SaleItemTax[]
+
+  @@index([saleId])
+  @@index([productId])
+  @@map("sale_items")
+}
+
+// Recorded at time of sale — never recomputed from the live TaxRate later,
+// same snapshot rule as SaleDiscount. One row per applicable component: 2
+// for intra-state (CGST+SGST), 1 for inter-state (IGST), +1 more if the
+// rate's cessPercent is non-zero.
+model SaleItemTax {
+  id          BigInt       @id @default(autoincrement())
+  saleItemId  BigInt
+  taxRateId   BigInt?
+  component   TaxComponent
+  ratePercent Decimal      @db.Decimal(5, 2)
+  amount      Decimal      @db.Decimal(14, 2)
+  createdAt   DateTime     @default(now())
+
+  saleItem SaleItem @relation(fields: [saleItemId], references: [id], onDelete: Cascade)
+  taxRate  TaxRate? @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+
+  @@index([saleItemId])
+  @@index([taxRateId])
+  @@map("sale_item_taxes")
+}
+
+// Invoice-level charge (shipping/packing/handling — NOT tax), snapshot of an
+// ExtraCharge catalog entry at the time it was attached to this sale.
+model SaleCharge {
+  id            BigInt   @id @default(autoincrement())
+  saleId        BigInt
+  extraChargeId BigInt?
+  taxRateId     BigInt?
+  name          String   @db.VarChar(100)
+  amount        Decimal  @db.Decimal(14, 2)
+  taxAmount     Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt     DateTime @default(now())
+
+  sale        Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  extraCharge ExtraCharge? @relation(fields: [extraChargeId], references: [id], onDelete: SetNull)
+  taxRate     TaxRate?     @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+
+  @@index([saleId])
+  @@index([extraChargeId])
+  @@map("sale_charges")
+}
+
+// Recorded at time of sale — never recomputed from the live Discount/Coupon
+// definition later, which may since have changed or been deleted. Exactly
+// one of discountId/couponId should be set per row (enforced at the service
+// layer; MySQL CHECK constraints aren't portably expressed through Prisma's
+// schema DSL). saleItemId is null for an order-level reduction (e.g. a
+// coupon applied to the whole cart), set for a line-level one (e.g. a
+// category discount on a single item).
+model SaleDiscount {
+  id         BigInt   @id @default(autoincrement())
+  tenantId   BigInt
+  saleId     BigInt
+  saleItemId BigInt?
+  discountId BigInt?
+  couponId   BigInt?
+  amount     Decimal  @db.Decimal(14, 2)
+  createdAt  DateTime @default(now())
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sale     Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  saleItem SaleItem? @relation(fields: [saleItemId], references: [id], onDelete: Cascade)
+  discount Discount? @relation(fields: [discountId], references: [id], onDelete: SetNull)
+  coupon   Coupon?   @relation(fields: [couponId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([saleId])
+  @@map("sale_discounts")
+}
+
+// Order-level record — line-level detail lives in SaleReturnItem. No status
+// field, same reasoning as PurchaseReturn: create = process.
+model SaleReturn {
+  id        BigInt   @id @default(autoincrement())
+  saleId    BigInt
+  reason    String   @db.VarChar(255)
+  createdAt DateTime @default(now())
+  createdBy BigInt?
+
+  sale  Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  items SaleReturnItem[]
+
+  @@index([saleId])
+  @@map("sale_returns")
+}
+
+model SaleReturnItem {
+  id           BigInt  @id @default(autoincrement())
+  saleReturnId BigInt
+  saleItemId   BigInt
+  quantity     Decimal @db.Decimal(18, 4)
+  // The actual money handed back for this returned quantity — prorated
+  // from the original SaleItem's price minus whatever discount/coupon
+  // reduction it (and its share of any order-level coupon) actually
+  // received, never the undiscounted list price. See
+  // Docs/business-rules/sale-return.md -> Discount-Aware Refunds.
+  refundAmount Decimal @db.Decimal(14, 2)
+
+  saleReturn SaleReturn @relation(fields: [saleReturnId], references: [id], onDelete: Cascade)
+  saleItem   SaleItem   @relation(fields: [saleItemId], references: [id], onDelete: Restrict)
+
+  @@index([saleReturnId])
+  @@index([saleItemId])
+  @@map("sale_return_items")
+}
+
+// ---------------------------------------------------------------------------
+// Payments — polymorphic over Purchase / Sale / Refund via referenceType.
+// Both purchaseId/saleId (typed FK, nullable) and referenceType/referenceId
+// (generic) are kept: the typed FK gives real referential integrity for the
+// two known cases today; referenceType/referenceId keeps the shape open for
+// future reference kinds (e.g. subscription billing) without a migration.
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id            BigInt        @id @default(autoincrement())
+  tenantId      BigInt
+  purchaseId    BigInt?
+  saleId        BigInt?
+  referenceType ReferenceType
+  referenceId   BigInt
+  amount        Decimal       @db.Decimal(14, 2)
+  paymentMethod PaymentMethod
+  createdAt     DateTime      @default(now())
+  createdBy     BigInt?
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchase Purchase? @relation("PurchasePayments", fields: [purchaseId], references: [id], onDelete: SetNull)
+  sale     Sale?     @relation("SalePayments", fields: [saleId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([referenceType, referenceId])
+  @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// Delivery / Fulfillment Integration
+//
+// Pluggable per-tenant courier integration. DeliveryProvider is a system
+// catalog (like Plan/Feature — no tenantId); each tenant opts into one or
+// more providers via TenantDeliveryConfig with their own encrypted
+// credentials. A Shipment links a Sale to whichever provider fulfilled it.
+// The actual API calls to each courier live behind a DeliveryProviderAdapter
+// interface in modules/delivery/ (one adapter class per `type`) — this
+// schema only stores the config and the resulting state, never courier
+// business logic. See Docs/ARCHITECTURE.md -> Delivery Integration.
+// ---------------------------------------------------------------------------
+
+model DeliveryProvider {
+  id        BigInt               @id @default(autoincrement())
+  name      String               @db.VarChar(100)
+  type      DeliveryProviderType
+  createdAt DateTime             @default(now())
+
+  tenantConfigs TenantDeliveryConfig[]
+  shipments     Shipment[]
+
+  @@map("delivery_providers")
+}
+
+// credentialsEncrypted stores API key/secret/account id as an
+// application-level encrypted blob (see shared/security/) — never plaintext
+// at rest, since these are third-party credentials a tenant owns.
+model TenantDeliveryConfig {
+  id                   BigInt   @id @default(autoincrement())
+  tenantId             BigInt
+  deliveryProviderId   BigInt
+  isEnabled            Boolean  @default(true)
+  isDefault            Boolean  @default(false)
+  credentialsEncrypted String   @db.Text
+  webhookSecret        String?  @db.VarChar(255)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveryProvider DeliveryProvider @relation(fields: [deliveryProviderId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, deliveryProviderId])
+  @@index([tenantId])
+  @@map("tenant_delivery_configs")
+}
+
+model Shipment {
+  id                 BigInt         @id @default(autoincrement())
+  tenantId           BigInt
+  saleId             BigInt
+  deliveryProviderId BigInt
+  trackingNumber     String?        @db.VarChar(150)
+  status             ShipmentStatus @default(PENDING)
+  cost               Decimal?       @db.Decimal(14, 2)
+  providerPayload    Json?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sale             Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  deliveryProvider DeliveryProvider @relation(fields: [deliveryProviderId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([saleId])
+  @@index([trackingNumber])
+  @@map("shipments")
+}
+
+// ---------------------------------------------------------------------------
+// Audit / Notifications / Attachments
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt
+  userId    BigInt
+  action    String   @db.VarChar(100)
+  entity    String   @db.VarChar(100)
+  entityId  BigInt
+  oldValue  Json?
+  newValue  Json?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // High write volume, append-only — same partitioning note as
+  // inventory_transactions applies here once this grows large.
+  @@index([tenantId, entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt
+  userId    BigInt
+  title     String   @db.VarChar(200)
+  message   String   @db.Text
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, isRead])
+  @@map("notifications")
+}
+
+model Attachment {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt
+  entity    String   @db.VarChar(100)
+  entityId  BigInt
+  fileName  String   @db.VarChar(255)
+  path      String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+  createdBy BigInt?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, entity, entityId])
+  @@map("attachments")
+}
+
+// ---------------------------------------------------------------------------
+// Idempotency — shared infrastructure, not owned by any one module.
+//
+// Used by any mutating endpoint whose caller may retry (Android POS syncing
+// an offline queue, a delivery-provider webhook redelivering after a timeout,
+// a flaky client connection). The caller sends an Idempotency-Key header;
+// shared/middleware/ looks it up here before the request reaches a
+// controller, and replays the stored response instead of re-running the
+// write on a duplicate delivery. requestHash guards against the same key
+// being reused for a different request body.
+// ---------------------------------------------------------------------------
+
+model IdempotencyKey {
+  id           BigInt   @id @default(autoincrement())
+  tenantId     BigInt
+  key          String   @db.VarChar(255)
+  requestHash  String   @db.VarChar(64)
+  statusCode   Int?
+  responseBody Json?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}

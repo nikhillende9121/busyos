@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx shadcn@latest add input label select table dialog sheet dropdown-menu badge form tabs sonner card separator -y)",
+      "Bash(npx shadcn@latest add form -y)",
+      "Bash(grep -o '[a-zA-Z0-9.,:> _-]\\\\{0,40\\\\}font-family:var\\(--font-geist-sans\\)[^;]*')",
+      "Bash(grep -o '<style[^>]*>.\\\\{0,300\\\\}')",
+      "Bash(curl -s -o /tmp/check.css -w \"http_status=%{http_code} size=%{size_download}\\\\n\" \"http://localhost:3000/_next/static/chunks/%5Broot-of-the-server%5D__0k38z8v._.css\")",
+      "Bash(rm -f /tmp/check.css)",
+      "Bash(curl -s -o /tmp/icon-check.png -w \"status=%{http_code} type=%{content_type} size=%{size_download}\\\\n\" http://localhost:3000/icon)",
+      "Bash(curl -s -o /tmp/icon-check2.png -w \"status=%{http_code} type=%{content_type} size=%{size_download}\\\\n\" http://localhost:3000/icon)",
+      "Bash(curl -s -o \"C:\\\\Users\\\\CSI\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-CSI-Pro-inventory-management\\\\9271ca37-04f7-4db1-a660-6431525f97f3\\\\scratchpad\\\\icon-check.png\" http://localhost:3000/icon)",
+      "Bash(curl -s -c /tmp/verify_cookies.txt -X POST http://localhost:3000/api/session/login -H 'Content-Type: application/json' -d '{\"tenantCode\":\"demo\",\"email\":\"admin@demo.test\",\"password\":\"Password123!\"}' -w '\\\\nhttp_status=%{http_code} time=%{time_total}s\\\\n')",
+      "Bash(curl -s -c /tmp/admin_cookies.txt -X POST http://localhost:3000/api/session/login -H 'Content-Type: application/json' -d '{\"tenantCode\":\"demo\",\"email\":\"admin@demo.test\",\"password\":\"Password123!\"}')",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"ProcessId=15344\")",
+      "PowerShell(Stop-Process -Id 15344 -Force)",
+      "Bash(wmic logicaldisk *)",
+      "Bash(mkdir -p \"c:\\\\Users\\\\CSI\\\\Pro\\\\inventory-management\\\\app\\\\\\(store\\)\\\\store\\\\purchases\\\\[id]\")"
+    ],
+    "additionalDirectories": [
+      "\\tmp",
+      "c:\\Users\\CSI\\Pro\\inventory-management\\app\\(store)\\store\\purchases"
+    ]
+  }
+}
