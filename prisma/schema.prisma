@@ -165,6 +165,12 @@ enum PaymentMethod {
   CREDIT
 }
 
+enum ExchangeDirection {
+  CUSTOMER_OWES
+  REFUND_DUE
+  EVEN
+}
+
 enum DiscountType {
   PERCENTAGE
   FLAT
@@ -1346,6 +1352,7 @@ model Sale {
   cashSession       CashSession?       @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
   items             SaleItem[]
   returns           SaleReturn[]
+  exchangeAsNewSale SaleExchange?
   payments          Payment[]          @relation("SalePayments")
   shipments         Shipment[]
   discounts         SaleDiscount[]
@@ -1464,8 +1471,9 @@ model SaleReturn {
   createdAt DateTime @default(now())
   createdBy BigInt?
 
-  sale  Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  items SaleReturnItem[]
+  sale     Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  items    SaleReturnItem[]
+  exchange SaleExchange?
 
   @@index([saleId])
   @@map("sale_returns")
@@ -1489,6 +1497,28 @@ model SaleReturnItem {
   @@index([saleReturnId])
   @@index([saleItemId])
   @@map("sale_return_items")
+}
+
+// Links a SaleReturn (items handed back) to the replacement Sale created in
+// the same transaction — what makes an exchange reportable as one event
+// instead of two unrelated records. differenceAmount is always the
+// non-negative settlement magnitude; differenceDirection carries the sign
+// (whether the customer paid it or was refunded it), settled via a normal
+// Payment row on newSale rather than a separate credit/wallet mechanism.
+// See Docs/business-rules/sale-exchange.md.
+model SaleExchange {
+  id                  BigInt            @id @default(autoincrement())
+  saleReturnId        BigInt            @unique
+  newSaleId           BigInt            @unique
+  differenceAmount    Decimal           @db.Decimal(14, 2)
+  differenceDirection ExchangeDirection
+  createdAt           DateTime          @default(now())
+  createdBy           BigInt?
+
+  saleReturn SaleReturn @relation(fields: [saleReturnId], references: [id], onDelete: Cascade)
+  newSale    Sale       @relation(fields: [newSaleId], references: [id], onDelete: Cascade)
+
+  @@map("sale_exchanges")
 }
 
 // ---------------------------------------------------------------------------

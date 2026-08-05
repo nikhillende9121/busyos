@@ -1,0 +1,122 @@
+IMPS ONE
+Inventory, Purchasing & Point-of-Sale Platform for Multi-Store Retail Businesses
+
+
+THE PROBLEM
+============================================================
+
+Most growing retail and distribution businesses run into the same wall:
+
+- Stock counts on the shelf don't match stock counts on paper. Nobody
+  can say, with confidence, exactly how many units of a product exist
+  right now across all stores and warehouses.
+
+- Purchasing, billing, and stock tracking live in separate tools (or
+  separate spreadsheets), so every purchase or sale has to be entered
+  twice, and the two records drift apart over time.
+
+- Every store or branch prices and discounts differently, with no
+  central control and no record of what was actually charged once a
+  promotion changes.
+
+- Staff have access to more than their job requires, simply because
+  giving everyone the same login was easier than setting up proper
+  access levels.
+
+- Owners and finance teams can't see a live, trustworthy view of
+  stock, sales, and purchases across all their locations at once -
+  only after someone compiles it, days later.
+
+- Adding a new store or a new staff member means new manual setup,
+  new spreadsheets, and new room for mistakes.
+
+None of these are staffing problems. They are the predictable result
+of running a multi-location business on tools that were only ever
+built for a single till, a single shop, a single ledger.
+
+
+WHAT IMPS ONE PROVIDES
+============================================================
+
+IMPS One is a single platform that runs purchasing, inventory, and
+sales together, across as many stores and warehouses as the business
+operates - so stock, pricing, and money always tell the same story.
+
+- ONE STOCK COUNT, EVERYWHERE
+  Every purchase, sale, transfer, and adjustment updates the same
+  live stock ledger. What the system shows on screen is what is
+  actually on the shelf, in every warehouse, all the time.
+
+- PURCHASING TO SELLING, IN ONE FLOW
+  Products, purchase orders, supplier bills, and point-of-sale are
+  one connected system, not three tools stitched together by hand.
+  A purchase received updates stock the moment it's confirmed; a
+  sale reduces it the moment it's rung up.
+
+- CENTRAL CONTROL OVER PRICING AND PROMOTIONS
+  Prices can be set per store, per customer tier, or per individual
+  customer from one place, and every discount or coupon that was
+  ever applied to a sale is kept exactly as it was charged - even
+  after the promotion itself is later changed.
+
+- ACCESS THAT MATCHES THE JOB
+  Every staff member gets a role - Cashier, Store Manager, Purchase
+  Officer, Admin, or a custom role built for the business - and can
+  only do what that role permits. A cashier cannot edit prices; a
+  purchase officer cannot issue refunds. This is enforced by the
+  system, not by trust.
+
+- A REAL-TIME VIEW FOR OWNERS AND FINANCE
+  Stock levels, sales, purchases, and GST-ready reports are visible
+  live, across every store, without waiting for a month-end
+  reconciliation.
+
+- BUILT-IN POINT OF SALE
+  A counter-ready POS with cash-drawer session tracking (opening
+  float, sales through the shift, closing count) so every shift
+  reconciles itself against what the till actually took in.
+
+- NEW STORES, MINUTES NOT WEEKS
+  Onboarding a new store or branch is a guided setup, not a rebuild -
+  new locations are live on the same system, with the same reporting,
+  the same day.
+
+- YOUR DATA, YOUR EYES ONLY
+  Every business on the platform is fully walled off from every
+  other. Nothing about one company's stock, prices, sales, or
+  customers is ever visible to another.
+
+
+WHO THIS IS FOR
+============================================================
+
+- Retail chains and franchises running more than one store
+- Distributors and wholesalers managing stock across warehouses
+- Businesses currently juggling separate billing, inventory, and
+  spreadsheet systems that no longer agree with each other
+- Any growing business that has outgrown a single-till, single-shop
+  way of working
+
+
+WHAT MAKES IT DIFFERENT
+============================================================
+
+Most inventory tools are built for one shop and stretched to cover
+more. IMPS One is built the other way around: multi-store and
+multi-warehouse from day one, so a business scales from one location
+to fifty without switching systems, re-training staff, or losing
+history along the way.
+
+Every action - a purchase, a sale, a stock adjustment, a price
+change - is recorded permanently. Nothing is silently overwritten.
+That record is what makes the live stock count trustworthy, the
+audit trail complete, and the reporting something the business can
+actually stand behind.
+
+
+IN SHORT
+============================================================
+
+IMPS One replaces disconnected billing, spreadsheets, and guesswork
+with one system where purchasing, stock, and sales always agree -
+across every store the business runs, on day one and at scale.

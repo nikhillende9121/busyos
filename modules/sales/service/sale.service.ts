@@ -350,7 +350,10 @@ async function advanceFulfillment(
 // post-discount grand total), and taxes it if the catalog entry is marked
 // taxable — computed before the transaction opens, same reasoning as the
 // quote/tax-line computation above.
-async function resolveSaleCharges(
+//
+// Exported for sale-exchange.service.ts to reuse for its replacement-items
+// leg — an exchange charges extra fees no differently than a normal Sale.
+export async function resolveSaleCharges(
   tenantId: bigint,
   taxContext: TaxContext,
   extraChargeIds: bigint[] | undefined,
@@ -395,7 +398,10 @@ async function resolveSaleCharges(
   return resolved;
 }
 
-function toSaleView(
+// Exported for sale-exchange.service.ts to reuse when assembling its
+// combined view — a sale nested inside an exchange reads no differently
+// than a standalone one.
+export function toSaleView(
   sale: Sale & {
     items: (SaleItem & { taxes: SaleItemTax[] })[];
     discounts: SaleDiscount[];

@@ -8,12 +8,13 @@ import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import type { CreateSaleReturnDto } from "../dto/sale-return.dto";
 import type { SaleReturnView } from "../types/sale-return.types";
 
-type ItemWithReturn = SaleReturnItem & { saleItem: SaleItem };
+export type ItemWithReturn = SaleReturnItem & { saleItem: SaleItem };
 
 // A return only makes sense once stock has actually left — DRAFT/
 // PENDING_PAYMENT sales never decremented inventory, and a CANCELLED sale
 // already reversed whatever it took (see sales.md -> Cancellation).
-const RETURNABLE_SALE_STATUSES = new Set<SaleStatus>(["CONFIRMED", "COMPLETED"]);
+// Exported: an exchange's returned side is subject to the same rule.
+export const RETURNABLE_SALE_STATUSES = new Set<SaleStatus>(["CONFIRMED", "COMPLETED"]);
 
 export const saleReturnService = {
   async list(tenantId: bigint, saleId?: bigint, scopedWarehouseId: bigint | null = null): Promise<SaleReturnView[]> {
@@ -126,7 +127,11 @@ export const saleReturnService = {
 // apportioned across every line by that line's share of the sale's total
 // subtotal, since an order-wide reduction was never attributed to one
 // specific line in the first place.
-function computeProratedRefundUnitPrice(
+//
+// Exported for sale-exchange.service.ts to reuse — an exchange's returned
+// side must value items exactly like a standalone return, not a second,
+// possibly-diverging implementation of the same discount-proration rule.
+export function computeProratedRefundUnitPrice(
   item: SaleItem,
   allItems: SaleItem[],
   allDiscounts: SaleDiscount[],
@@ -154,7 +159,10 @@ function computeProratedRefundUnitPrice(
   return clamped.div(item.quantity);
 }
 
-function toSaleReturnView(saleReturn: SaleReturn & { items: ItemWithReturn[] }): SaleReturnView {
+// Exported for sale-exchange.service.ts to reuse when assembling its
+// combined view — a return nested inside an exchange reads no differently
+// than a standalone one.
+export function toSaleReturnView(saleReturn: SaleReturn & { items: ItemWithReturn[] }): SaleReturnView {
   const items = saleReturn.items.map((item) => ({
     id: item.id.toString(),
     saleItemId: item.saleItemId.toString(),
