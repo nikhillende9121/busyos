@@ -13,6 +13,7 @@ import type {
   UpdateTenantStatusDto,
   UploadTenantLogoDto,
   RemoveTenantLogoDto,
+  ChangeTenantPlanDto,
 } from "../dto/tenant.dto";
 import type { SuperAdminTenantView } from "../types/tenant.types";
 
@@ -151,15 +152,88 @@ export const superAdminTenantService = {
     const tenant = await superAdminTenantRepository.updateLogo(dto.tenantId, null);
     return toTenantView(tenant);
   },
+
+  // Moves a tenant onto a different plan: cancels whatever ACTIVE/TRIAL
+  // subscription it currently has (never deleted — TenantSubscription is
+  // an append-only history, see DATABASE.md) and opens a new one on the
+  // target plan, then resyncs its features to match. This is the only
+  // place a tenant's plan can change after creation — see
+  // Docs/business-rules/feature-catalog.md -> Changing a Tenant's Plan.
+  async changePlan(dto: ChangeTenantPlanDto): Promise<SuperAdminTenantView> {
+    const tenant = await superAdminTenantRepository.findById(dto.tenantId);
+    if (!tenant) {
+      throw new AppError("RESOURCE_NOT_FOUND", "Tenant not found");
+    }
+    const plan = await superAdminTenantRepository.findPlanById(dto.planId);
+    if (!plan) {
+      throw new AppError("VALIDATION_ERROR", "planId does not exist");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const current = await superAdminTenantRepository.findActiveSubscription(dto.tenantId);
+      if (current) {
+        await superAdminTenantRepository.cancelSubscription(tx, current.id);
+      }
+
+      const startDate = new Date();
+      const endDate = new Date(startDate);
+      endDate.setFullYear(endDate.getFullYear() + 1);
+      await superAdminTenantRepository.createSubscription(tx, {
+        tenantId: dto.tenantId,
+        planId: dto.planId,
+        startDate,
+        endDate,
+        status: "ACTIVE",
+      });
+    });
+
+    await superAdminTenantService.resyncFeatures(dto.tenantId);
+    return superAdminTenantService.getById(dto.tenantId);
+  },
+
+  // Recomputes a tenant's TenantFeature rows to match its current plan's
+  // PlanFeature list exactly: enables anything the plan grants that isn't
+  // already on, and disables anything currently on that the plan no
+  // longer grants. Never deletes a row — a feature the tenant loses is
+  // toggled `enabled: false`, not removed, so its history stays queryable.
+  // Called after changePlan, and should also be called for every affected
+  // tenant whenever a Plan's own feature list is edited — see
+  // plan.service.ts's update().
+  async resyncFeatures(tenantId: bigint): Promise<void> {
+    const subscription = await superAdminTenantRepository.findActiveSubscription(tenantId);
+    if (!subscription) {
+      return;
+    }
+    const planFeatureIds = new Set(subscription.plan.planFeatures.map((pf) => pf.featureId.toString()));
+    const currentlyEnabled = await superAdminTenantRepository.findEnabledFeatureIds(tenantId);
+    const currentlyEnabledIds = new Set(currentlyEnabled.map((row) => row.featureId.toString()));
+
+    const everyRelevantFeatureId = new Set([...planFeatureIds, ...currentlyEnabledIds]);
+    for (const idString of everyRelevantFeatureId) {
+      const featureId = BigInt(idString);
+      await superAdminTenantRepository.setFeatureEnabled(prisma, tenantId, featureId, planFeatureIds.has(idString));
+    }
+  },
 };
 
-function toTenantView(tenant: Tenant): SuperAdminTenantView {
+// `subscriptions` is only present when the row came from findMany/findById
+// (see tenant.repository.ts's includeCurrentPlan) — updateStatus/
+// updateLogo/create's own mutation result don't carry it, so this field
+// is optional and simply omitted (never wrongly shown as "no plan") for
+// those call sites' immediate response; the list is invalidated and
+// refetched afterward anyway.
+function toTenantView(
+  tenant: Tenant & { subscriptions?: { plan: { id: bigint; name: string } }[] },
+): SuperAdminTenantView {
+  const currentPlan = tenant.subscriptions?.[0]?.plan ?? null;
   return {
     id: tenant.id.toString(),
     name: tenant.name,
     code: tenant.code,
     status: tenant.status,
     logoUrl: tenant.logoPublicId ? cloudinaryImageUrl(tenant.logoPublicId, CLOUDINARY_TRANSFORM.logo) : null,
+    currentPlanId: currentPlan ? currentPlan.id.toString() : null,
+    currentPlanName: currentPlan ? currentPlan.name : null,
     createdAt: tenant.createdAt.toISOString(),
     updatedAt: tenant.updatedAt.toISOString(),
   };

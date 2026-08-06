@@ -18,6 +18,11 @@ vi.mock("../repository/tenant.repository", () => ({
     findPlanById: vi.fn(),
     createSubscription: vi.fn(),
     enableFeatures: vi.fn(),
+    findActiveSubscription: vi.fn(),
+    cancelSubscription: vi.fn(),
+    findTenantIdsOnPlan: vi.fn(),
+    findEnabledFeatureIds: vi.fn(),
+    setFeatureEnabled: vi.fn(),
   },
 }));
 
@@ -229,6 +234,87 @@ describe("superAdminTenantService.uploadLogo", () => {
     await superAdminTenantService.uploadLogo({ tenantId: 5n, file: makeFile("logo.png", "image/png", 100) });
 
     expect(destroyImage).toHaveBeenCalledWith("tenants/5/logo/old-public-id");
+  });
+});
+
+describe("superAdminTenantService.resyncFeatures", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("does nothing when the tenant has no active/trial subscription", async () => {
+    vi.mocked(superAdminTenantRepository.findActiveSubscription).mockResolvedValue(null);
+
+    await superAdminTenantService.resyncFeatures(5n);
+
+    expect(superAdminTenantRepository.setFeatureEnabled).not.toHaveBeenCalled();
+  });
+
+  it("enables features the plan grants and disables ones it no longer does", async () => {
+    vi.mocked(superAdminTenantRepository.findActiveSubscription).mockResolvedValue({
+      id: 1n,
+      plan: { planFeatures: [{ featureId: 10n }, { featureId: 20n }] },
+    } as never);
+    vi.mocked(superAdminTenantRepository.findEnabledFeatureIds).mockResolvedValue([{ featureId: 20n }, { featureId: 30n }]);
+
+    await superAdminTenantService.resyncFeatures(5n);
+
+    // 10: newly granted by the plan, wasn't enabled -> enable
+    expect(superAdminTenantRepository.setFeatureEnabled).toHaveBeenCalledWith(expect.anything(), 5n, 10n, true);
+    // 20: granted and already enabled -> stays enabled
+    expect(superAdminTenantRepository.setFeatureEnabled).toHaveBeenCalledWith(expect.anything(), 5n, 20n, true);
+    // 30: currently enabled but the plan no longer grants it -> disable
+    expect(superAdminTenantRepository.setFeatureEnabled).toHaveBeenCalledWith(expect.anything(), 5n, 30n, false);
+  });
+});
+
+describe("superAdminTenantService.changePlan", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(superAdminTenantRepository.findById).mockResolvedValue(tenantRow() as never);
+    vi.mocked(superAdminTenantRepository.findPlanById).mockResolvedValue({ id: 2n, planFeatures: [] } as never);
+    vi.mocked(superAdminTenantRepository.findActiveSubscription).mockResolvedValue(null);
+    vi.mocked(superAdminTenantRepository.findEnabledFeatureIds).mockResolvedValue([]);
+  });
+
+  it("rejects a tenant that doesn't exist", async () => {
+    vi.mocked(superAdminTenantRepository.findById).mockResolvedValue(null);
+
+    await expect(superAdminTenantService.changePlan({ tenantId: 999n, planId: 2n })).rejects.toMatchObject({
+      code: "RESOURCE_NOT_FOUND",
+    });
+    expect(superAdminTenantRepository.createSubscription).not.toHaveBeenCalled();
+  });
+
+  it("rejects a planId that doesn't exist", async () => {
+    vi.mocked(superAdminTenantRepository.findPlanById).mockResolvedValue(null);
+
+    await expect(superAdminTenantService.changePlan({ tenantId: 5n, planId: 999n })).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
+    expect(superAdminTenantRepository.createSubscription).not.toHaveBeenCalled();
+  });
+
+  it("cancels the current subscription and opens a new one on the target plan", async () => {
+    vi.mocked(superAdminTenantRepository.findActiveSubscription).mockResolvedValueOnce({
+      id: 77n,
+      plan: { planFeatures: [] },
+    } as never);
+
+    await superAdminTenantService.changePlan({ tenantId: 5n, planId: 2n });
+
+    expect(superAdminTenantRepository.cancelSubscription).toHaveBeenCalledWith("tenant-tx", 77n);
+    expect(superAdminTenantRepository.createSubscription).toHaveBeenCalledWith(
+      "tenant-tx",
+      expect.objectContaining({ tenantId: 5n, planId: 2n, status: "ACTIVE" }),
+    );
+  });
+
+  it("has no prior subscription to cancel when the tenant never had one", async () => {
+    await superAdminTenantService.changePlan({ tenantId: 5n, planId: 2n });
+
+    expect(superAdminTenantRepository.cancelSubscription).not.toHaveBeenCalled();
+    expect(superAdminTenantRepository.createSubscription).toHaveBeenCalled();
   });
 });
 

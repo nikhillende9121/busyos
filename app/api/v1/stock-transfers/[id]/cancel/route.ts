@@ -4,6 +4,6 @@ import { withApiAuth } from "@/shared/middleware/with-api-auth";
 type Params = { id: string };
 
 export const POST = withApiAuth<Params>(stockTransferController.cancel, {
-  feature: "INVENTORY",
+  feature: "STOCK_TRANSFER",
   permission: "STOCK_TRANSFER.UPDATE",
 });

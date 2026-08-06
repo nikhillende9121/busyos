@@ -12,4 +12,9 @@ export const createPlanSchema = z.object({
   maxWarehouses: z.coerce.number().int().positive().optional(),
   maxUsers: z.coerce.number().int().positive().optional(),
 });
+
+// Same shape as create — updating a plan is a full replace, not a patch,
+// same reasoning as plan.repository.ts's replaceFeatures.
+export const updatePlanSchema = createPlanSchema;
+export type UpdatePlanInput = z.infer<typeof updatePlanSchema>;
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;

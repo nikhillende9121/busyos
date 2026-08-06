@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import { ApiError } from "@/lib/api/client";
 import type { PlanView } from "@/modules/super-admin/types/plan.types";
 import type { FeatureView } from "@/modules/super-admin/types/feature.types";
 
-type CreatePlanFormValues = {
+type PlanFormValues = {
   name: string;
   price: string;
   billingCycle: string;
@@ -27,34 +27,10 @@ type CreatePlanFormValues = {
   maxUsers: string;
 };
 
-const columns: DataTableColumn<PlanView>[] = [
-  { key: "name", header: "Name" },
-  { key: "price", header: "Price" },
-  { key: "billingCycle", header: "Billing" },
-  {
-    key: "maxWarehouses",
-    header: "Warehouse limit",
-    render: (row) => row.maxWarehouses ?? "Unlimited",
-  },
-  {
-    key: "maxUsers",
-    header: "User limit",
-    render: (row) => row.maxUsers ?? "Unlimited",
-  },
-  {
-    key: "features",
-    header: "Features",
-    render: (row) => (
-      <div className="flex flex-wrap gap-1">
-        {row.features.length === 0 ? "—" : row.features.map((code) => <Badge key={code} variant="outline">{code}</Badge>)}
-      </div>
-    ),
-  },
-];
-
 export default function SuperAdminPlansPage() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<PlanView | null>(null);
 
   const { data: plans, isLoading } = useQuery({
     queryKey: ["super-admin", "plans"],
@@ -65,24 +41,66 @@ export default function SuperAdminPlansPage() {
     queryFn: () => superAdminApiClient.get<FeatureView[]>("/features"),
   });
 
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["super-admin", "plans"] });
+
+  // Blank limit fields must be OMITTED, not sent as "" — the API treats an
+  // omitted maxWarehouses/maxUsers as unlimited, but Number("") is 0, which
+  // would be rejected by the schema's .positive() check instead.
+  const toPayload = (values: PlanFormValues) => ({
+    name: values.name,
+    price: values.price,
+    billingCycle: values.billingCycle,
+    featureCodes: values.featureCodes,
+    maxWarehouses: values.maxWarehouses ? Number(values.maxWarehouses) : undefined,
+    maxUsers: values.maxUsers ? Number(values.maxUsers) : undefined,
+  });
+
   const createMutation = useMutation({
-    // Blank limit fields must be OMITTED, not sent as "" — the API treats
-    // an omitted maxWarehouses/maxUsers as unlimited, but Number("") is 0,
-    // which would be rejected by the schema's .positive() check instead.
-    mutationFn: (values: CreatePlanFormValues) =>
-      superAdminApiClient.post<PlanView>("/plans", {
-        name: values.name,
-        price: values.price,
-        billingCycle: values.billingCycle,
-        featureCodes: values.featureCodes,
-        maxWarehouses: values.maxWarehouses ? Number(values.maxWarehouses) : undefined,
-        maxUsers: values.maxUsers ? Number(values.maxUsers) : undefined,
-      }),
+    mutationFn: (values: PlanFormValues) => superAdminApiClient.post<PlanView>("/plans", toPayload(values)),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["super-admin", "plans"] });
+      invalidate();
       toast.success("Plan created");
     },
   });
+
+  // Every tenant currently on this plan is resynced server-side the
+  // moment its features change — see
+  // modules/super-admin/service/plan.service.ts's update(). Nothing extra
+  // to trigger from here.
+  const updateMutation = useMutation({
+    mutationFn: ({ id, values }: { id: string; values: PlanFormValues }) =>
+      superAdminApiClient.put<PlanView>(`/plans/${id}`, toPayload(values)),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Plan updated — every tenant on it was resynced");
+    },
+  });
+
+  const columns: DataTableColumn<PlanView>[] = [
+    { key: "name", header: "Name" },
+    { key: "price", header: "Price" },
+    { key: "billingCycle", header: "Billing" },
+    { key: "maxWarehouses", header: "Warehouse limit", render: (row) => row.maxWarehouses ?? "Unlimited" },
+    { key: "maxUsers", header: "User limit", render: (row) => row.maxUsers ?? "Unlimited" },
+    {
+      key: "features",
+      header: "Features",
+      render: (row) => (
+        <div className="flex flex-wrap gap-1">
+          {row.features.length === 0 ? "—" : row.features.map((code) => <Badge key={code} variant="outline">{code}</Badge>)}
+        </div>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      render: (row) => (
+        <Button variant="ghost" size="icon-sm" onClick={() => setEditingPlan(row)} aria-label="Edit plan">
+          <Pencil className="size-4" />
+        </Button>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -99,12 +117,36 @@ export default function SuperAdminPlansPage() {
       <DataTable columns={columns} rows={plans ?? []} isLoading={isLoading} getRowId={(row) => row.id} emptyMessage="No plans yet." />
 
       {createOpen && (
-        <CreatePlanDialog
+        <PlanFormDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
+          title="New plan"
+          submitLabel="Create plan"
           features={features ?? []}
+          defaultValues={{ name: "", price: "", billingCycle: "MONTHLY", featureCodes: [], maxWarehouses: "", maxUsers: "" }}
           onSubmit={async (values) => {
             await createMutation.mutateAsync(values);
+          }}
+        />
+      )}
+
+      {editingPlan && (
+        <PlanFormDialog
+          open={Boolean(editingPlan)}
+          onOpenChange={(open) => !open && setEditingPlan(null)}
+          title={`Edit ${editingPlan.name}`}
+          submitLabel="Save changes"
+          features={features ?? []}
+          defaultValues={{
+            name: editingPlan.name,
+            price: editingPlan.price,
+            billingCycle: editingPlan.billingCycle,
+            featureCodes: editingPlan.features,
+            maxWarehouses: editingPlan.maxWarehouses?.toString() ?? "",
+            maxUsers: editingPlan.maxUsers?.toString() ?? "",
+          }}
+          onSubmit={async (values) => {
+            await updateMutation.mutateAsync({ id: editingPlan.id, values });
           }}
         />
       )}
@@ -112,26 +154,34 @@ export default function SuperAdminPlansPage() {
   );
 }
 
-function CreatePlanDialog({
+function PlanFormDialog({
   open,
   onOpenChange,
+  title,
+  submitLabel,
   features,
+  defaultValues,
   onSubmit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  title: string;
+  submitLabel: string;
   features: FeatureView[];
-  onSubmit: (values: CreatePlanFormValues) => Promise<void>;
+  defaultValues: PlanFormValues;
+  onSubmit: (values: PlanFormValues) => Promise<void>;
 }) {
-  const form = useForm<CreatePlanFormValues>({
-    defaultValues: { name: "", price: "", billingCycle: "MONTHLY", featureCodes: [], maxWarehouses: "", maxUsers: "" },
-  });
+  const form = useForm<PlanFormValues>({ defaultValues });
 
-  const handleSubmit = async (values: CreatePlanFormValues) => {
+  useEffect(() => {
+    if (open) form.reset(defaultValues);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultValues]);
+
+  const handleSubmit = async (values: PlanFormValues) => {
     try {
       await onSubmit(values);
       onOpenChange(false);
-      form.reset();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
     }
@@ -141,7 +191,7 @@ function CreatePlanDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>New plan</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
           <div className="space-y-1.5">
@@ -219,7 +269,7 @@ function CreatePlanDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={form.formState.isSubmitting}>
-              {form.formState.isSubmitting ? "Creating…" : "Create plan"}
+              {form.formState.isSubmitting ? "Saving…" : submitLabel}
             </Button>
           </DialogFooter>
         </form>

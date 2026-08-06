@@ -2,11 +2,11 @@ import { customerGroupController } from "@/modules/pricing/controller/customer-g
 import { withApiAuth } from "@/shared/middleware/with-api-auth";
 
 export const GET = withApiAuth(customerGroupController.list, {
-  feature: "SALES",
+  feature: "CUSTOMER_GROUP",
   permission: "CUSTOMER_GROUP.VIEW",
 });
 
 export const POST = withApiAuth(customerGroupController.create, {
-  feature: "SALES",
+  feature: "CUSTOMER_GROUP",
   permission: "CUSTOMER_GROUP.CREATE",
 });

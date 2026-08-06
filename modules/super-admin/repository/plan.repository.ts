@@ -17,8 +17,22 @@ export const superAdminPlanRepository = {
     return db.plan.create({ data });
   },
 
+  update(db: Db, id: bigint, data: Prisma.PlanUpdateInput) {
+    return db.plan.update({ where: { id }, data });
+  },
+
   async addFeatures(db: Db, planId: bigint, featureIds: bigint[]): Promise<void> {
     if (featureIds.length === 0) return;
     await db.planFeature.createMany({ data: featureIds.map((featureId) => ({ planId, featureId })) });
+  },
+
+  // Full replace, not a diff — a plan's feature list is small (well under
+  // 20 rows), so delete-then-recreate is simpler and just as correct as
+  // computing an add/remove set.
+  async replaceFeatures(db: Db, planId: bigint, featureIds: bigint[]): Promise<void> {
+    await db.planFeature.deleteMany({ where: { planId } });
+    if (featureIds.length > 0) {
+      await db.planFeature.createMany({ data: featureIds.map((featureId) => ({ planId, featureId })) });
+    }
   },
 };

@@ -4,11 +4,11 @@ import { withApiAuth } from "@/shared/middleware/with-api-auth";
 type Params = { id: string };
 
 export const POST = withApiAuth<Params>(brandController.uploadImage, {
-  feature: "PRODUCT",
+  feature: "BRAND",
   permission: "BRAND.UPDATE",
 });
 
 export const DELETE = withApiAuth<Params>(brandController.removeImage, {
-  feature: "PRODUCT",
+  feature: "BRAND",
   permission: "BRAND.UPDATE",
 });

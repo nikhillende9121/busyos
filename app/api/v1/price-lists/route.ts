@@ -2,11 +2,11 @@ import { priceListController } from "@/modules/pricing/controller/price-list.con
 import { withApiAuth } from "@/shared/middleware/with-api-auth";
 
 export const GET = withApiAuth(priceListController.list, {
-  feature: "SALES",
+  feature: "PRICE_LIST",
   permission: "PRICE_LIST.VIEW",
 });
 
 export const POST = withApiAuth(priceListController.create, {
-  feature: "SALES",
+  feature: "PRICE_LIST",
   permission: "PRICE_LIST.CREATE",
 });

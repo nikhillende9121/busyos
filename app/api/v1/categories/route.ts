@@ -2,11 +2,11 @@ import { categoryController } from "@/modules/product/controller/category.contro
 import { withApiAuth } from "@/shared/middleware/with-api-auth";
 
 export const GET = withApiAuth(categoryController.list, {
-  feature: "PRODUCT",
+  feature: "CATEGORY",
   permission: "CATEGORY.VIEW",
 });
 
 export const POST = withApiAuth(categoryController.create, {
-  feature: "PRODUCT",
+  feature: "CATEGORY",
   permission: "CATEGORY.CREATE",
 });

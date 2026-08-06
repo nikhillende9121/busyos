@@ -2,11 +2,11 @@ import { supplierController } from "@/modules/supplier/controller/supplier.contr
 import { withApiAuth } from "@/shared/middleware/with-api-auth";
 
 export const GET = withApiAuth(supplierController.list, {
-  feature: "PURCHASE",
+  feature: "SUPPLIER",
   permission: "SUPPLIER.VIEW",
 });
 
 export const POST = withApiAuth(supplierController.create, {
-  feature: "PURCHASE",
+  feature: "SUPPLIER",
   permission: "SUPPLIER.CREATE",
 });

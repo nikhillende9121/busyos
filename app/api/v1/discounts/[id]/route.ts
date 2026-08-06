@@ -4,6 +4,6 @@ import { withApiAuth } from "@/shared/middleware/with-api-auth";
 type Params = { id: string };
 
 export const GET = withApiAuth<Params>(discountController.getById, {
-  feature: "SALES",
+  feature: "DISCOUNT",
   permission: "DISCOUNT.VIEW",
 });

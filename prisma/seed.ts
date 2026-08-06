@@ -38,7 +38,32 @@ const PERMISSION_CODES = [
   "WAREHOUSE.CREATE", "WAREHOUSE.DELETE", "WAREHOUSE.UPDATE", "WAREHOUSE.VIEW",
 ];
 
-const FEATURE_CODES = ["PRODUCT", "INVENTORY", "PURCHASE", "SALES"];
+// Module-level feature gates — see shared/middleware/with-api-auth.ts's
+// Feature Validation step and Docs/business-rules/feature-catalog.md.
+// PRODUCT/INVENTORY/PURCHASE/SALES are the original four; everything else
+// was split out of one of those so a Plan can grant e.g. Purchasing
+// without Purchase Returns. ROLE/USER/TENANT-settings stay ungated on
+// purpose — see feature-catalog.md for why gating core tenant
+// administration is a support risk, not a real pricing tier.
+const FEATURE_CODES = [
+  "PRODUCT",
+  "CATEGORY",
+  "BRAND",
+  "UNIT",
+  "SUPPLIER",
+  "CUSTOMER",
+  "CUSTOMER_GROUP",
+  "PURCHASE",
+  "PURCHASE_RETURN",
+  "SALES",
+  "SALE_RETURN",
+  "SALE_EXCHANGE",
+  "PRICE_LIST",
+  "DISCOUNT",
+  "COUPON",
+  "INVENTORY",
+  "STOCK_TRANSFER",
+];
 
 const DEMO_TENANT_CODE = "demo";
 const DEMO_ADMIN_EMAIL = "admin@demo.test";

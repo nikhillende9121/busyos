@@ -2,11 +2,11 @@ import { stockTransferController } from "@/modules/inventory/controller/stock-tr
 import { withApiAuth } from "@/shared/middleware/with-api-auth";
 
 export const GET = withApiAuth(stockTransferController.list, {
-  feature: "INVENTORY",
+  feature: "STOCK_TRANSFER",
   permission: "STOCK_TRANSFER.VIEW",
 });
 
 export const POST = withApiAuth(stockTransferController.create, {
-  feature: "INVENTORY",
+  feature: "STOCK_TRANSFER",
   permission: "STOCK_TRANSFER.CREATE",
 });

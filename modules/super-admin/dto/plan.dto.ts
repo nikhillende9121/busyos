@@ -9,3 +9,14 @@ export type CreatePlanDto = {
   maxWarehouses?: number;
   maxUsers?: number;
 };
+
+// Full replace, not partial — see plan.service.ts's update().
+export type UpdatePlanDto = {
+  planId: bigint;
+  name: string;
+  price: string;
+  billingCycle: "MONTHLY" | "YEARLY";
+  featureCodes?: string[];
+  maxWarehouses?: number;
+  maxUsers?: number;
+};

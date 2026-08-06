@@ -61,6 +61,20 @@ export default function SuperAdminTenantsPage() {
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
     },
   });
+  // Cancels the tenant's current subscription and opens a new one on the
+  // chosen plan, then resyncs its TenantFeature rows to match — see
+  // modules/super-admin/service/tenant.service.ts's changePlan().
+  const planMutation = useMutation({
+    mutationFn: ({ id, planId }: { id: string; planId: string }) =>
+      superAdminApiClient.put<SuperAdminTenantView>(`/tenants/${id}/plan`, { planId }),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Tenant plan changed");
+    },
+    onError: (error) => {
+      toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
+    },
+  });
 
   const planOptions = (plans ?? []).map((plan) => ({ label: plan.name, value: plan.id }));
 
@@ -68,6 +82,29 @@ export default function SuperAdminTenantsPage() {
     { key: "logo", header: "Logo", render: (row) => <TenantLogoCell tenant={row} onChanged={invalidate} /> },
     { key: "name", header: "Name" },
     { key: "code", header: "Code" },
+    {
+      key: "plan",
+      header: "Plan",
+      render: (row) => (
+        <Select
+          value={row.currentPlanId ?? ""}
+          onValueChange={(planId) => {
+            if (planId && planId !== row.currentPlanId) planMutation.mutate({ id: row.id, planId });
+          }}
+        >
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="No plan">{row.currentPlanName ?? "No plan"}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {planOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ),
+    },
     {
       key: "status",
       header: "Status",

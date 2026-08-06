@@ -4,16 +4,16 @@ import { withApiAuth } from "@/shared/middleware/with-api-auth";
 type Params = { id: string };
 
 export const GET = withApiAuth<Params>(supplierController.getById, {
-  feature: "PURCHASE",
+  feature: "SUPPLIER",
   permission: "SUPPLIER.VIEW",
 });
 
 export const PUT = withApiAuth<Params>(supplierController.update, {
-  feature: "PURCHASE",
+  feature: "SUPPLIER",
   permission: "SUPPLIER.UPDATE",
 });
 
 export const DELETE = withApiAuth<Params>(supplierController.remove, {
-  feature: "PURCHASE",
+  feature: "SUPPLIER",
   permission: "SUPPLIER.DELETE",
 });

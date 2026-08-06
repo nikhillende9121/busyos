@@ -12,7 +12,9 @@ vi.mock("../repository/plan.repository", () => ({
     findMany: vi.fn(),
     findById: vi.fn(),
     create: vi.fn(),
+    update: vi.fn(),
     addFeatures: vi.fn(),
+    replaceFeatures: vi.fn(),
   },
 }));
 
@@ -22,8 +24,22 @@ vi.mock("../repository/feature.repository", () => ({
   },
 }));
 
+vi.mock("../repository/tenant.repository", () => ({
+  superAdminTenantRepository: {
+    findTenantIdsOnPlan: vi.fn(),
+  },
+}));
+
+vi.mock("../service/tenant.service", () => ({
+  superAdminTenantService: {
+    resyncFeatures: vi.fn(),
+  },
+}));
+
 import { superAdminPlanRepository } from "../repository/plan.repository";
 import { superAdminFeatureRepository } from "../repository/feature.repository";
+import { superAdminTenantRepository } from "../repository/tenant.repository";
+import { superAdminTenantService } from "../service/tenant.service";
 import { superAdminPlanService } from "../service/plan.service";
 
 function planRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -67,6 +83,52 @@ describe("superAdminPlanService.create", () => {
       superAdminPlanService.create({ name: "Starter", price: "999.00", billingCycle: "MONTHLY", featureCodes: ["NOT_REAL"] }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     expect(superAdminPlanRepository.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("superAdminPlanService.update", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(superAdminPlanRepository.findById).mockResolvedValue(planRow() as never);
+    vi.mocked(superAdminFeatureRepository.findByCodes).mockResolvedValue([{ id: 10n, code: "PRODUCT" }] as never);
+  });
+
+  it("rejects updating a plan that doesn't exist", async () => {
+    vi.mocked(superAdminPlanRepository.findById).mockResolvedValue(null);
+
+    await expect(
+      superAdminPlanService.update({ planId: 999n, name: "X", price: "1", billingCycle: "MONTHLY" }),
+    ).rejects.toMatchObject({ code: "RESOURCE_NOT_FOUND" });
+    expect(superAdminPlanRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("replaces the plan's fields and features, then resyncs every tenant on it", async () => {
+    vi.mocked(superAdminTenantRepository.findTenantIdsOnPlan).mockResolvedValue([1n, 3n]);
+
+    await superAdminPlanService.update({
+      planId: 1n,
+      name: "Starter",
+      price: "1499.00",
+      billingCycle: "MONTHLY",
+      featureCodes: ["PRODUCT"],
+    });
+
+    expect(superAdminPlanRepository.update).toHaveBeenCalledWith(
+      "plan-tx",
+      1n,
+      expect.objectContaining({ price: "1499.00" }),
+    );
+    expect(superAdminPlanRepository.replaceFeatures).toHaveBeenCalledWith("plan-tx", 1n, [10n]);
+    expect(superAdminTenantService.resyncFeatures).toHaveBeenCalledWith(1n);
+    expect(superAdminTenantService.resyncFeatures).toHaveBeenCalledWith(3n);
+  });
+
+  it("resyncs no one when nobody is currently subscribed to the plan", async () => {
+    vi.mocked(superAdminTenantRepository.findTenantIdsOnPlan).mockResolvedValue([]);
+
+    await superAdminPlanService.update({ planId: 1n, name: "Starter", price: "1499.00", billingCycle: "MONTHLY" });
+
+    expect(superAdminTenantService.resyncFeatures).not.toHaveBeenCalled();
   });
 });
 
