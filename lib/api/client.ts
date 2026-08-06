@@ -52,9 +52,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // reload again, forever. Also never fires under /super-admin/** — that
     // area has its own, entirely separate session (see
     // lib/api/super-admin-client.ts) and should never bounce to this
-    // client's /login.
+    // client's /login. Also never fires on "/" — the public landing page,
+    // which has no session by design and must never bounce a visitor to
+    // /login just for existing.
     const pathname = typeof window !== "undefined" ? window.location.pathname : "";
-    const skipRedirect = pathname === "/login" || pathname.startsWith("/super-admin");
+    const skipRedirect = pathname === "/login" || pathname === "/" || pathname.startsWith("/super-admin");
     if (json.error.code === "UNAUTHENTICATED" && typeof window !== "undefined" && !skipRedirect) {
       window.location.href = "/login";
     }

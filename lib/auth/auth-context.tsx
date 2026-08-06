@@ -32,15 +32,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // — an entirely separate identity (see shared/middleware/with-super-admin-auth.ts)
   // with no tenant session cookie at all. Fetching /auth/me there would
   // always 401 and, worse, bounce the visitor to the tenant /login page.
+  // Same reasoning for "/" — the public landing page, which never has a
+  // session by design and has no use for `user`/`can`/`hasFeature` anyway.
   const pathname = usePathname();
-  const isSuperAdminArea = pathname?.startsWith("/super-admin") ?? false;
+  const isPublicRoute = pathname === "/" || (pathname?.startsWith("/super-admin") ?? false);
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.me,
     queryFn: () => apiClient.get<MeView>("/auth/me"),
     staleTime: 5 * 60 * 1000,
     retry: false,
-    enabled: !isSuperAdminArea,
+    enabled: !isPublicRoute,
   });
 
   const can = (permissionCode: string) => data?.permissions.includes(permissionCode) ?? false;
