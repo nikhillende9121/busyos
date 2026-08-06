@@ -34,9 +34,11 @@ const ICON_BY_HREF: Record<string, typeof ShoppingCart> = {
 
 export function StoreSidebar() {
   const pathname = usePathname();
-  const { can, isLoading, user } = useAuth();
+  const { can, hasFeature, isLoading, user } = useAuth();
 
-  const visibleItems = isLoading ? STORE_NAV_ITEMS : STORE_NAV_ITEMS.filter((item) => can(item.permission));
+  const visibleItems = isLoading
+    ? STORE_NAV_ITEMS
+    : STORE_NAV_ITEMS.filter((item) => can(item.permission) && (!item.feature || hasFeature(item.feature)));
 
   return (
     <aside className="hidden w-20 shrink-0 flex-col items-center bg-sidebar text-sidebar-foreground md:flex">

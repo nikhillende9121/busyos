@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth/auth-context";
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { can, isLoading, user } = useAuth();
+  const { can, hasFeature, isLoading, user } = useAuth();
 
   return (
     <aside className="hidden w-60 shrink-0 border-r bg-muted/20 md:flex md:flex-col">
@@ -25,7 +25,11 @@ export function Sidebar() {
       </div>
       <nav className="flex-1 space-y-6 overflow-y-auto p-4">
         {NAV_SECTIONS.map((section) => {
-          const visibleItems = isLoading ? section.items : section.items.filter((item) => can(item.permission));
+          const visibleItems = isLoading
+            ? section.items
+            : section.items.filter(
+                (item) => can(item.permission) && (!item.feature || hasFeature(item.feature)),
+              );
           if (visibleItems.length === 0) return null;
 
           return (

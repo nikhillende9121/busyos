@@ -18,6 +18,11 @@ type AuthContextValue = {
   // role doesn't hold. Not the enforcement boundary: withApiAuth still
   // checks every request server-side regardless of what this returns.
   can: (permissionCode: string) => boolean;
+  // Same idea, but for the tenant's plan rather than the user's role — a
+  // nav item whose backing route is gated by `feature: "SALE_RETURN"`
+  // must check this too, or it stays visible/clickable for a tenant whose
+  // plan doesn't include it, leading straight to a 403 FEATURE_NOT_ENABLED.
+  hasFeature: (featureCode: string) => boolean;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -39,8 +44,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const can = (permissionCode: string) => data?.permissions.includes(permissionCode) ?? false;
+  const hasFeature = (featureCode: string) => data?.enabledFeatures.includes(featureCode) ?? false;
 
-  return <AuthContext.Provider value={{ user: data, isLoading, can }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user: data, isLoading, can, hasFeature }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

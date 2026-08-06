@@ -78,8 +78,17 @@ export const superAdminTenantRepository = {
     });
   },
 
-  cancelSubscription(db: Db, id: bigint) {
-    return db.tenantSubscription.update({ where: { id }, data: { status: "CANCELLED" } });
+  // Cancels every ACTIVE/TRIAL row, not just the most recent one — a
+  // tenant should have exactly one at a time, but changePlan() calls this
+  // unconditionally rather than trusting findActiveSubscription() (a
+  // single findFirst) to have caught every stray duplicate, e.g. from two
+  // overlapping changePlan calls both reading "current" before either had
+  // written its cancellation.
+  cancelAllActiveSubscriptions(db: Db, tenantId: bigint): Promise<Prisma.BatchPayload> {
+    return db.tenantSubscription.updateMany({
+      where: { tenantId, status: { in: ACTIVE_SUBSCRIPTION_STATUSES } },
+      data: { status: "CANCELLED" },
+    });
   },
 
   // Every tenant currently subscribed to a plan — used to resync everyone

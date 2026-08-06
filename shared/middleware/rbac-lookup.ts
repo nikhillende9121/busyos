@@ -17,6 +17,19 @@ export const rbacLookup = {
     return tenantFeature !== null;
   },
 
+  // Used by GET /api/v1/auth/me — same reasoning as
+  // listPermissionCodesForRole: the client needs the full enabled set to
+  // hide nav items/buttons for features the tenant's plan doesn't include,
+  // rather than showing a link and letting isFeatureEnabledForTenant 403
+  // it on click.
+  async listEnabledFeatureCodesForTenant(tenantId: bigint): Promise<string[]> {
+    const tenantFeatures = await prisma.tenantFeature.findMany({
+      where: { tenantId, enabled: true },
+      include: { feature: true },
+    });
+    return tenantFeatures.map((tf) => tf.feature.code);
+  },
+
   async roleHasPermission(roleId: bigint, permissionCode: string): Promise<boolean> {
     const rolePermission = await prisma.rolePermission.findFirst({
       where: { roleId, permission: { code: permissionCode } },

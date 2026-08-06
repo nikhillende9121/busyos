@@ -413,7 +413,8 @@ function ProductFormDialog({
                         />
                         <button
                           type="button"
-                          className="absolute top-1 right-1 rounded-full bg-background/80 p-1 opacity-0 transition-opacity group-hover:opacity-100"
+                          className="absolute top-1 right-1 rounded-full bg-background/80 p-1 opacity-0 transition-opacity group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-50"
+                          disabled={deleteImageMutation.isPending || makePrimaryMutation.isPending}
                           onClick={() => deleteImageMutation.mutate(image.id)}
                           aria-label="Delete image"
                         >
@@ -426,10 +427,13 @@ function ProductFormDialog({
                         ) : (
                           <button
                             type="button"
-                            className="absolute bottom-1 left-1 rounded bg-background/80 px-1.5 py-0.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
+                            className="absolute bottom-1 left-1 rounded bg-background/80 px-1.5 py-0.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-50"
+                            disabled={deleteImageMutation.isPending || makePrimaryMutation.isPending}
                             onClick={() => makePrimaryMutation.mutate(image.id)}
                           >
-                            Make primary
+                            {makePrimaryMutation.isPending && makePrimaryMutation.variables === image.id
+                              ? "Working…"
+                              : "Make primary"}
                           </button>
                         )}
                       </div>

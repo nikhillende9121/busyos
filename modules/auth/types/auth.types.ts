@@ -26,4 +26,10 @@ export type MeView = {
     name: string;
   };
   permissions: string[];
+  // Feature codes the tenant's current plan has enabled — drives nav
+  // filtering (components/layout/sidebar.tsx, store-sidebar.tsx) so a
+  // link is never shown for a module the tenant's plan doesn't include.
+  // Not the enforcement boundary — every route re-checks this itself via
+  // shared/middleware/with-api-auth.ts.
+  enabledFeatures: string[];
 };

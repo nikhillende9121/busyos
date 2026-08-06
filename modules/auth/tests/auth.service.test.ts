@@ -25,6 +25,7 @@ vi.mock("@/shared/auth/jwt", () => ({
 vi.mock("@/shared/middleware/rbac-lookup", () => ({
   rbacLookup: {
     listPermissionCodesForRole: vi.fn(),
+    listEnabledFeatureCodesForTenant: vi.fn(),
   },
 }));
 
@@ -165,6 +166,7 @@ describe("authService.me", () => {
       "PRODUCT.VIEW",
       "PRODUCT.CREATE",
     ]);
+    vi.mocked(rbacLookup.listEnabledFeatureCodesForTenant).mockResolvedValue(["PRODUCT"]);
 
     const result = await authService.me({ userId: 10n, tenantId: 1n, roleId: 2n, warehouseId: null });
 
@@ -178,6 +180,7 @@ describe("authService.me", () => {
       warehouseName: null,
       role: { id: "2", name: "Admin" },
       permissions: ["PRODUCT.VIEW", "PRODUCT.CREATE"],
+      enabledFeatures: ["PRODUCT"],
     });
   });
 

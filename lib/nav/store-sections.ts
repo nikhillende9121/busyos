@@ -8,12 +8,12 @@
 import type { NavItem } from "./sections";
 
 export const STORE_NAV_ITEMS: NavItem[] = [
-  { label: "Sales", href: "/store/sales", permission: "SALE.VIEW" },
-  { label: "Sale Returns", href: "/store/sale-returns", permission: "SALE_RETURN.VIEW" },
-  { label: "Sale Exchanges", href: "/store/sale-exchanges", permission: "SALE.EXCHANGE" },
-  { label: "Purchases", href: "/store/purchases", permission: "PURCHASE.VIEW" },
-  { label: "Purchase Returns", href: "/store/purchase-returns", permission: "PURCHASE_RETURN.VIEW" },
-  { label: "Inventory", href: "/store/inventory", permission: "INVENTORY.VIEW" },
-  { label: "Adjustments", href: "/store/adjustments", permission: "INVENTORY.ADJUST" },
-  { label: "Stock Transfers", href: "/store/stock-transfers", permission: "STOCK_TRANSFER.VIEW" },
+  { label: "Sales", href: "/store/sales", permission: "SALE.VIEW", feature: "SALES" },
+  { label: "Sale Returns", href: "/store/sale-returns", permission: "SALE_RETURN.VIEW", feature: "SALE_RETURN" },
+  { label: "Sale Exchanges", href: "/store/sale-exchanges", permission: "SALE.EXCHANGE", feature: "SALE_EXCHANGE" },
+  { label: "Purchases", href: "/store/purchases", permission: "PURCHASE.VIEW", feature: "PURCHASE" },
+  { label: "Purchase Returns", href: "/store/purchase-returns", permission: "PURCHASE_RETURN.VIEW", feature: "PURCHASE_RETURN" },
+  { label: "Inventory", href: "/store/inventory", permission: "INVENTORY.VIEW", feature: "INVENTORY" },
+  { label: "Adjustments", href: "/store/adjustments", permission: "INVENTORY.ADJUST", feature: "INVENTORY" },
+  { label: "Stock Transfers", href: "/store/stock-transfers", permission: "STOCK_TRANSFER.VIEW", feature: "STOCK_TRANSFER" },
 ];

@@ -19,7 +19,7 @@ vi.mock("../repository/tenant.repository", () => ({
     createSubscription: vi.fn(),
     enableFeatures: vi.fn(),
     findActiveSubscription: vi.fn(),
-    cancelSubscription: vi.fn(),
+    cancelAllActiveSubscriptions: vi.fn(),
     findTenantIdsOnPlan: vi.fn(),
     findEnabledFeatureIds: vi.fn(),
     setFeatureEnabled: vi.fn(),
@@ -295,25 +295,23 @@ describe("superAdminTenantService.changePlan", () => {
     expect(superAdminTenantRepository.createSubscription).not.toHaveBeenCalled();
   });
 
-  it("cancels the current subscription and opens a new one on the target plan", async () => {
-    vi.mocked(superAdminTenantRepository.findActiveSubscription).mockResolvedValueOnce({
-      id: 77n,
-      plan: { planFeatures: [] },
-    } as never);
-
+  it("cancels every active/trial subscription (not just the most recent) before opening a new one", async () => {
     await superAdminTenantService.changePlan({ tenantId: 5n, planId: 2n });
 
-    expect(superAdminTenantRepository.cancelSubscription).toHaveBeenCalledWith("tenant-tx", 77n);
+    expect(superAdminTenantRepository.cancelAllActiveSubscriptions).toHaveBeenCalledWith("tenant-tx", 5n);
     expect(superAdminTenantRepository.createSubscription).toHaveBeenCalledWith(
       "tenant-tx",
       expect.objectContaining({ tenantId: 5n, planId: 2n, status: "ACTIVE" }),
     );
   });
 
-  it("has no prior subscription to cancel when the tenant never had one", async () => {
+  it("cancels unconditionally even when the tenant never had a prior subscription", async () => {
     await superAdminTenantService.changePlan({ tenantId: 5n, planId: 2n });
 
-    expect(superAdminTenantRepository.cancelSubscription).not.toHaveBeenCalled();
+    // Always called — cancelAllActiveSubscriptions is a no-op update when
+    // there's nothing to cancel, safer than a findFirst-then-cancel that
+    // could miss a duplicate row.
+    expect(superAdminTenantRepository.cancelAllActiveSubscriptions).toHaveBeenCalledWith("tenant-tx", 5n);
     expect(superAdminTenantRepository.createSubscription).toHaveBeenCalled();
   });
 });

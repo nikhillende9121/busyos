@@ -170,10 +170,7 @@ export const superAdminTenantService = {
     }
 
     await prisma.$transaction(async (tx) => {
-      const current = await superAdminTenantRepository.findActiveSubscription(dto.tenantId);
-      if (current) {
-        await superAdminTenantRepository.cancelSubscription(tx, current.id);
-      }
+      await superAdminTenantRepository.cancelAllActiveSubscriptions(tx, dto.tenantId);
 
       const startDate = new Date();
       const endDate = new Date(startDate);

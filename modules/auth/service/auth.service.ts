@@ -67,7 +67,10 @@ export const authService = {
     if (!user) {
       throw new AppError("UNAUTHENTICATED", "Session is no longer valid");
     }
-    const permissions = await rbacLookup.listPermissionCodesForRole(auth.roleId);
+    const [permissions, enabledFeatures] = await Promise.all([
+      rbacLookup.listPermissionCodesForRole(auth.roleId),
+      rbacLookup.listEnabledFeatureCodesForTenant(auth.tenantId),
+    ]);
 
     return {
       id: user.id.toString(),
@@ -81,6 +84,7 @@ export const authService = {
       warehouseName: user.warehouse?.name ?? null,
       role: { id: user.role.id.toString(), name: user.role.name },
       permissions,
+      enabledFeatures,
     };
   },
 };
