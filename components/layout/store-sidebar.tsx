@@ -76,7 +76,7 @@ export function StoreSidebar() {
       </nav>
 
       <Link
-        href="/"
+        href="/dashboard"
         className="flex w-16 flex-col items-center gap-1 rounded-xl py-2 text-center text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
       >
         <LayoutDashboard className="size-5" />

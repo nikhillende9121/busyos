@@ -14,7 +14,7 @@ export function Sidebar() {
   return (
     <aside className="hidden w-60 shrink-0 border-r bg-muted/20 md:flex md:flex-col">
       <div className="flex h-14 items-center justify-center border-b px-4">
-        <Link href="/" className="flex items-center gap-2 font-heading font-semibold">
+        <Link href="/dashboard" className="flex items-center gap-2 font-heading font-semibold">
           {user?.tenantLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary URL, not a local/static asset
             <img src={user.tenantLogoUrl} alt="" className="h-8 max-w-36 object-contain" />

@@ -30,6 +30,11 @@ import {
 // a Super Admin session (see shared/middleware/with-super-admin-auth.ts) —
 // dispatched purely on whether the path is under /super-admin, never mixed.
 export async function proxy(request: NextRequest) {
+  // The public marketing landing page — never guarded. The dashboard home
+  // a signed-in user actually lands on lives at /dashboard, not here.
+  if (request.nextUrl.pathname === "/") {
+    return NextResponse.next();
+  }
   if (request.nextUrl.pathname.startsWith("/super-admin")) {
     return guardSuperAdminSession(request);
   }
@@ -101,6 +106,9 @@ export const config = {
   // Everything except both login pages, the API (which polices its own
   // auth), Next.js/static assets, and the generated favicon (app/icon.tsx)
   // — unauthenticated requests for it (e.g. the browser tab icon while on
-  // /login itself) must get the PNG, not a redirect to /login.
+  // /login itself) must get the PNG, not a redirect to /login. "/" still
+  // matches this pattern (middleware runs), but proxy() itself bypasses
+  // it immediately — see the early return above — rather than trying to
+  // special-case the root path in this regex.
   matcher: ["/((?!login|super-admin/login|api|_next/static|_next/image|favicon.ico|icon).*)"],
 };

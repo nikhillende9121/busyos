@@ -81,8 +81,10 @@ function LoginForm() {
     // An explicit `next` (a deep link that bounced here) always wins.
     // Otherwise, a role holding STORE.ACCESS lands on the simplified store
     // view instead of the dashboard — see shared/constants/permissions.ts.
+    // "/" is the public landing page, not the app — the dashboard home
+    // lives at "/dashboard".
     const explicitNext = searchParams.get("next");
-    let next = explicitNext ?? "/";
+    let next = explicitNext ?? "/dashboard";
     if (!explicitNext) {
       const me = await apiClient.get<MeView>("/auth/me");
       if (me.permissions.includes("STORE.ACCESS")) {
