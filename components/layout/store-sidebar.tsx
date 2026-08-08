@@ -48,7 +48,7 @@ export function StoreSidebar() {
           <img src={user.tenantLogoUrl} alt="" className="h-8 w-8 rounded object-contain" />
         ) : (
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary font-heading text-sm font-bold text-sidebar-primary-foreground">
-            B
+            R
           </div>
         )}
       </div>

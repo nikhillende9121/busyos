@@ -29,17 +29,32 @@ const FEATURES = [
 const PLANS = [
   {
     name: "Starter",
-    price: "₹1,499",
-    period: "/month",
+    price: "₹14,990",
+    period: "/year",
     description: "For a single store finding its footing.",
-    features: ["1 warehouse", "Up to 3 users", "Sales & purchasing", "Basic reporting"],
+    features: [
+      "1 warehouse",
+      "Up to 3 users",
+      "Product catalog & suppliers",
+      "Sales / POS, all channels",
+      "Tax rates, extra charges & GST report",
+      "Email support",
+    ],
   },
   {
     name: "Growth",
-    price: "₹3,999",
-    period: "/month",
+    price: "₹24,999",
+    period: "/year",
     description: "For a business running more than one store.",
-    features: ["Up to 5 warehouses", "Up to 15 users", "Multi-store inventory", "Pricing & promotions", "Priority support"],
+    features: [
+      "Up to 5 warehouses",
+      "Up to 15 users",
+      "Stock transfers between stores",
+      "Price lists, discounts & coupons",
+      "Sale & purchase returns, exchanges",
+      "Customer groups",
+      "Priority support",
+    ],
     highlighted: true,
   },
   {
@@ -47,7 +62,7 @@ const PLANS = [
     price: "Custom",
     period: "",
     description: "For chains and distributors at scale.",
-    features: ["Unlimited warehouses", "Unlimited users", "Dedicated onboarding", "Custom reporting"],
+    features: ["Unlimited warehouses", "Unlimited users", "Custom reporting", "Dedicated onboarding & account manager"],
   },
 ];
 
@@ -56,7 +71,7 @@ export default function LandingPage() {
     <div className="flex flex-1 flex-col">
       <header className="border-b">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <span className="font-heading text-lg font-semibold tracking-tight">Busyos</span>
+          <span className="font-heading text-lg font-semibold tracking-tight">RetailX</span>
           <Button render={<Link href="/login">Sign in</Link>} />
         </div>
       </header>
@@ -72,7 +87,7 @@ export default function LandingPage() {
               Inventory, purchasing & sales — one system, every store.
             </h1>
             <p className="mt-4 text-lg text-muted-foreground">
-              Busyos replaces disconnected billing, spreadsheets, and guesswork with one platform where stock,
+              RetailX replaces disconnected billing, spreadsheets, and guesswork with one platform where stock,
               pricing, and sales always agree — from your first store to your fiftieth.
             </p>
             <div className="mt-8 flex items-center justify-center gap-3">
@@ -131,13 +146,18 @@ export default function LandingPage() {
                 </Card>
               ))}
             </div>
+
+            <p className="mt-8 text-center text-sm text-muted-foreground">
+              All plans are billed annually. Month-to-month billing is available on request
+              (Starter ₹1,499/mo, Growth ₹3,999/mo).
+            </p>
           </div>
         </section>
       </main>
 
       <footer className="border-t">
         <div className="mx-auto max-w-6xl px-6 py-8 text-center text-sm text-muted-foreground">
-          © {new Date().getFullYear()} Busyos. Multi-tenant inventory, purchase & sales platform.
+          © {new Date().getFullYear()} RetailX. Multi-tenant inventory, purchase & sales platform.
         </div>
       </footer>
     </div>

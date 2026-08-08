@@ -108,7 +108,7 @@ function LoginForm() {
             <PosMachineIcon className="h-7 w-7" />
           </div>
           <div className="space-y-1">
-            <h1 className="font-heading text-xl font-semibold tracking-tight">Busyos</h1>
+            <h1 className="font-heading text-xl font-semibold tracking-tight">RetailX</h1>
             <p className="text-sm text-muted-foreground">Sign in to your workspace</p>
           </div>
         </div>

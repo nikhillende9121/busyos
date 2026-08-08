@@ -24,10 +24,10 @@ const headingSans = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   title: {
-    default: "Busyos",
-    template: "%s · Busyos",
+    default: "RetailX",
+    template: "%s · RetailX",
   },
-  description: "Busyos — multi-tenant inventory, purchase & sales management platform",
+  description: "RetailX — multi-tenant inventory, purchase & sales management platform",
 };
 
 export default function RootLayout({

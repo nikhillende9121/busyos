@@ -19,7 +19,7 @@ export function Sidebar() {
             // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary URL, not a local/static asset
             <img src={user.tenantLogoUrl} alt="" className="h-8 max-w-36 object-contain" />
           ) : (
-            "Busyos"
+            "RetailX"
           )}
         </Link>
       </div>
