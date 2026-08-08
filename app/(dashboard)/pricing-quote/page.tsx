@@ -67,7 +67,7 @@ export default function PricingQuotePage() {
 
   const onSubmit = async (values: FieldValues) => {
     try {
-      const payload = { ...values, customerId: values.customerId === NONE ? undefined : values.customerId, couponCode: values.couponCode || undefined };
+      const payload = { ...values, couponCode: values.couponCode || undefined };
       const quote = await quoteMutation.mutateAsync(payload);
       setResult(quote);
     } catch (error) {
@@ -118,7 +118,10 @@ export default function PricingQuotePage() {
                   control={form.control}
                   name="customerId"
                   render={({ field }) => (
-                    <Select value={field.value ?? NONE} onValueChange={field.onChange}>
+                    <Select
+                      value={field.value ?? NONE}
+                      onValueChange={(value) => field.onChange(value === NONE ? undefined : value)}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="No customer" />
                       </SelectTrigger>

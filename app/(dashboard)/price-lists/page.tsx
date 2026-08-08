@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useForm, Controller, type FieldValues } from "react-hook-form";
+import { useForm, Controller, type FieldValues, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -30,8 +31,51 @@ import type { Paginated } from "@/shared/utils/pagination";
 // the earlier CRUD modules there's no edit/delete action here.
 const NONE = "__none__";
 
+// This form has no per-field inline error display (unlike e.g. the login
+// page), so a failed zod validation previously meant handleSubmit silently
+// never called onSubmit — no toast, no visible reason, nothing.
+//
+// Named per field rather than a generic walker: shared/validation/id.ts's
+// idString rejects an empty/unselected value with "must be a numeric id",
+// which is accurate but meaningless to someone who just didn't pick a
+// product yet — translate the known fields to what actually needs fixing.
+function describeError(errors: FieldErrors): string {
+  if (errors.name) {
+    return "Enter a name for this price list.";
+  }
+
+  const itemsError = errors.items as
+    | { message?: string; root?: { message?: string } }
+    | { productId?: { message?: string }; price?: { message?: string }; minQuantity?: { message?: string } }[]
+    | undefined;
+
+  if (itemsError && !Array.isArray(itemsError)) {
+    // Array-level failure (e.g. zod's `.min(1, "at least one item...")`).
+    return itemsError.message ?? itemsError.root?.message ?? "Add at least one product line.";
+  }
+  if (Array.isArray(itemsError)) {
+    const index = itemsError.findIndex((item) => item?.productId || item?.price || item?.minQuantity);
+    if (index !== -1) {
+      const item = itemsError[index];
+      if (item.productId) return `Line ${index + 1}: select a product.`;
+      if (item.price) return `Line ${index + 1}: enter a valid price.`;
+      if (item.minQuantity) return `Line ${index + 1}: minimum quantity must be a positive number, or left blank.`;
+    }
+  }
+
+  return "Check the form — something's missing or invalid.";
+}
+
 const columns: DataTableColumn<PriceListView>[] = [
-  { key: "name", header: "Name" },
+  {
+    key: "name",
+    header: "Name",
+    render: (row) => (
+      <Link href={`/price-lists/${row.id}`} className="underline underline-offset-2">
+        {row.name}
+      </Link>
+    ),
+  },
   { key: "currency", header: "Currency" },
   { key: "isDefault", header: "Default", render: (row) => (row.isDefault ? <Badge>Default</Badge> : null) },
   { key: "items", header: "Items", render: (row) => row.items.length },
@@ -89,8 +133,6 @@ export default function PriceListsPage() {
     try {
       const payload = {
         ...values,
-        warehouseId: values.warehouseId === NONE ? undefined : values.warehouseId,
-        customerGroupId: values.customerGroupId === NONE ? undefined : values.customerGroupId,
         items: (values.items as { productId: string; price: string; minQuantity?: string }[]).map((item) => ({
           ...item,
           minQuantity: item.minQuantity || undefined,
@@ -100,6 +142,10 @@ export default function PriceListsPage() {
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
     }
+  };
+
+  const onInvalid = (errors: FieldErrors) => {
+    toast.error(describeError(errors));
   };
 
   return (
@@ -132,7 +178,7 @@ export default function PriceListsPage() {
           <DialogHeader>
             <DialogTitle>New price list</DialogTitle>
           </DialogHeader>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="name">Name</Label>
               <Input id="name" placeholder="Wholesale Pricing" {...form.register("name")} />
@@ -145,7 +191,10 @@ export default function PriceListsPage() {
                   control={form.control}
                   name="warehouseId"
                   render={({ field }) => (
-                    <Select value={field.value ?? NONE} onValueChange={field.onChange}>
+                    <Select
+                      value={field.value ?? NONE}
+                      onValueChange={(value) => field.onChange(value === NONE ? undefined : value)}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="All warehouses" />
                       </SelectTrigger>
@@ -167,7 +216,10 @@ export default function PriceListsPage() {
                   control={form.control}
                   name="customerGroupId"
                   render={({ field }) => (
-                    <Select value={field.value ?? NONE} onValueChange={field.onChange}>
+                    <Select
+                      value={field.value ?? NONE}
+                      onValueChange={(value) => field.onChange(value === NONE ? undefined : value)}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="All customers" />
                       </SelectTrigger>

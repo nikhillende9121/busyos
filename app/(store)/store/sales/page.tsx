@@ -19,7 +19,29 @@ import type { SaleView } from "@/modules/sales/types/sale.types";
 import type { CustomerView } from "@/modules/customer/types/customer.types";
 import type { ProductView } from "@/modules/product/types/product.types";
 import type { ExtraChargeView } from "@/modules/extra-charge/types/extra-charge.types";
+import type { InventoryBalanceView } from "@/modules/inventory/types/inventory.types";
+import type { PriceListView } from "@/modules/pricing/types/price-list.types";
 import type { Paginated } from "@/shared/utils/pagination";
+
+// Best-effort "buy 1" price per product, from whichever price list applies
+// to this store: a warehouse-specific list wins over the tenant-wide
+// default, same priority order as the authoritative server-side resolver
+// (modules/pricing/service/price-list.service.ts's resolvePrice) — this is
+// a display hint only, still editable per cart line, so an approximation
+// (lowest minQuantity tier, not full resolve() semantics) is acceptable.
+function buildPriceHints(priceLists: PriceListView[], warehouseId: string): Map<string, string> {
+  const list = priceLists.find((pl) => pl.warehouseId === warehouseId) ?? priceLists.find((pl) => pl.isDefault);
+  if (!list) return new Map();
+  const bestTierByProduct = new Map<string, { price: string; minQuantity: number }>();
+  for (const item of list.items) {
+    const minQuantity = Number(item.minQuantity);
+    const existing = bestTierByProduct.get(item.productId);
+    if (!existing || minQuantity < existing.minQuantity) {
+      bestTierByProduct.set(item.productId, { price: item.price, minQuantity });
+    }
+  }
+  return new Map(Array.from(bestTierByProduct, ([productId, tier]) => [productId, tier.price]));
+}
 
 type Row = SaleView & { customerName: string };
 
@@ -52,8 +74,11 @@ export default function StoreSalesPage() {
     queryFn: () => apiClient.get<CustomerView[]>("/customers"),
   });
   const { data: products } = useQuery({
-    queryKey: queryKeys.list("products", { pageSize: 200 }),
-    queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 200 }),
+    // 100 is the server's hard max (modules/product/schema/product.schema.ts) —
+    // requesting more throws VALIDATION_ERROR, which silently empties this
+    // whole screen (no products, search has nothing to filter).
+    queryKey: queryKeys.list("products", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),
   });
   const { data: extraCharges } = useQuery({
     queryKey: queryKeys.list("extra-charges"),
@@ -133,21 +158,72 @@ function CheckoutScreen({
   const [couponCode, setCouponCode] = useState("");
   const [extraChargeIds, setExtraChargeIds] = useState<string[]>([]);
 
+  // Best-effort — if the current role lacks INVENTORY.VIEW/PRICE_LIST.VIEW,
+  // these just come back empty and the grid falls back to no qty/price
+  // hint rather than breaking the page.
+  const { data: balances } = useQuery({
+    queryKey: queryKeys.list("inventory-balance"),
+    queryFn: () => apiClient.get<InventoryBalanceView[]>("/inventory/balance"),
+  });
+  const { data: priceLists } = useQuery({
+    queryKey: queryKeys.list("price-lists"),
+    queryFn: () => apiClient.get<PriceListView[]>("/price-lists"),
+  });
+
+  const qtyByProductId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const balance of balances ?? []) map.set(balance.productId, balance.quantity);
+    return map;
+  }, [balances]);
+  const priceHintByProductId = useMemo(
+    () => buildPriceHints(priceLists ?? [], warehouseId),
+    [priceLists, warehouseId],
+  );
+
+  // Out of stock (a known balance of 0 or less — not merely unknown/no
+  // balance row) is excluded outright, not just disabled — a cashier has
+  // no reason to even see something that can't be sold right now.
+  const sellableProducts = useMemo(
+    () =>
+      products.filter((p) => {
+        const qty = qtyByProductId.get(p.id);
+        return qty === undefined || Number(qty) > 0;
+      }),
+    [products, qtyByProductId],
+  );
+
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter(
+    if (!q) return sellableProducts;
+    return sellableProducts.filter(
       (p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.barcode?.includes(q),
     );
-  }, [products, search]);
+  }, [sellableProducts, search]);
 
   const addToCart = (product: ProductView) => {
+    // Guards the tile's disabled state, not just cosmetic — a product
+    // known to be at/below zero stock must never be added, since stock
+    // only actually decrements later at sale-confirm, not here.
+    const qty = qtyByProductId.get(product.id);
+    if (qty !== undefined && Number(qty) <= 0) {
+      toast.error(`${product.name} is out of stock.`);
+      return;
+    }
     setCart((lines) => {
       const existing = lines.find((l) => l.productId === product.id);
       if (existing) {
         return lines.map((l) => (l.productId === product.id ? { ...l, quantity: l.quantity + 1 } : l));
       }
-      return [...lines, { productId: product.id, sku: product.sku, name: product.name, quantity: 1, price: "" }];
+      return [
+        ...lines,
+        {
+          productId: product.id,
+          sku: product.sku,
+          name: product.name,
+          quantity: 1,
+          price: priceHintByProductId.get(product.id) ?? "",
+        },
+      ];
     });
   };
 
@@ -219,30 +295,47 @@ function CheckoutScreen({
           </div>
         </div>
 
-        <div className="grid flex-1 grid-cols-2 gap-2.5 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
-          {filteredProducts.map((product) => (
-            <button
-              key={product.id}
-              type="button"
-              onClick={() => addToCart(product)}
-              className="flex flex-col items-start gap-1 rounded-xl border bg-card p-3 text-left transition-colors hover:border-primary hover:bg-accent active:scale-[0.98]"
-            >
-              <div className="flex h-16 w-full items-center justify-center rounded-lg bg-muted">
-                {product.images[0] ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary URL
-                  <img
-                    src={product.images[0].thumbnailUrl}
-                    alt=""
-                    className="h-full w-full rounded-lg object-cover"
-                  />
-                ) : (
-                  <ShoppingCart className="size-6 text-muted-foreground" />
-                )}
-              </div>
-              <p className="w-full truncate text-sm font-medium">{product.name}</p>
-              <p className="text-xs text-muted-foreground">{product.sku}</p>
-            </button>
-          ))}
+        <div className="grid flex-1 grid-cols-2 content-start gap-2 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
+          {filteredProducts.map((product) => {
+            const qty = qtyByProductId.get(product.id);
+            const outOfStock = qty !== undefined && Number(qty) <= 0;
+            const priceHint = priceHintByProductId.get(product.id);
+            return (
+              <button
+                key={product.id}
+                type="button"
+                disabled={outOfStock}
+                onClick={() => addToCart(product)}
+                title={outOfStock ? `${product.name} is out of stock` : undefined}
+                className="flex items-center gap-2 rounded-lg border bg-card p-2 text-left transition-colors hover:border-primary hover:bg-accent active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
+              >
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
+                  {product.images[0] ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary URL
+                    <img
+                      src={product.images[0].thumbnailUrl}
+                      alt=""
+                      className="h-full w-full rounded-md object-cover"
+                    />
+                  ) : (
+                    <ShoppingCart className="size-4 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{product.name}</p>
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="truncate text-xs text-muted-foreground">{product.sku}</p>
+                    {priceHint && <p className="shrink-0 text-xs font-medium tabular-nums">{priceHint}</p>}
+                  </div>
+                  {qty !== undefined && (
+                    <p className={outOfStock ? "text-xs font-medium text-destructive" : "text-xs text-muted-foreground"}>
+                      {outOfStock ? "Out of stock" : `${qty} in stock`}
+                    </p>
+                  )}
+                </div>
+              </button>
+            );
+          })}
           {filteredProducts.length === 0 && (
             <p className="col-span-full py-8 text-center text-sm text-muted-foreground">No products match.</p>
           )}
