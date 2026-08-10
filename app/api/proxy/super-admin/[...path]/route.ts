@@ -7,6 +7,7 @@ import {
   setSuperAdminSessionCookies,
   clearSuperAdminSessionCookies,
 } from "@/lib/auth/super-admin-session-cookies";
+import { getInternalOrigin } from "@/lib/api/internal-origin";
 
 // Mirrors app/api/proxy/v1/[...path]/route.ts exactly, for the Super Admin
 // stack: cookie -> bearer translation in front of the real
@@ -32,7 +33,7 @@ function forward(
   accessToken: string | undefined,
   body: ArrayBuffer | undefined,
 ): Promise<Response> {
-  const target = new URL(`/api/v1/super-admin/${path.join("/")}${request.nextUrl.search}`, request.nextUrl.origin);
+  const target = new URL(`/api/v1/super-admin/${path.join("/")}${request.nextUrl.search}`, getInternalOrigin());
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
   if (contentType) {

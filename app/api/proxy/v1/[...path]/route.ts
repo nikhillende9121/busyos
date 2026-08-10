@@ -7,6 +7,7 @@ import {
   setSessionCookies,
   clearSessionCookies,
 } from "@/lib/auth/session-cookies";
+import { getInternalOrigin } from "@/lib/api/internal-origin";
 
 // A thin cookie -> bearer translation layer, nothing else: the real
 // authorization pipeline (Auth -> Tenant -> Subscription -> Feature ->
@@ -40,7 +41,7 @@ function forward(
   accessToken: string | undefined,
   body: ArrayBuffer | undefined,
 ): Promise<Response> {
-  const target = new URL(`/api/v1/${path.join("/")}${request.nextUrl.search}`, request.nextUrl.origin);
+  const target = new URL(`/api/v1/${path.join("/")}${request.nextUrl.search}`, getInternalOrigin());
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
   if (contentType) {
