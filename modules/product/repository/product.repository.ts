@@ -58,6 +58,13 @@ export const productRepository = {
     });
   },
 
+  findManyByIds(tenantId: bigint, ids: bigint[]) {
+    return prisma.product.findMany({
+      where: { tenantId, id: { in: ids }, deletedAt: null },
+      include: { images: { orderBy: { sortOrder: "asc" } } },
+    });
+  },
+
   create(data: Prisma.ProductUncheckedCreateInput) {
     return prisma.product.create({ data });
   },

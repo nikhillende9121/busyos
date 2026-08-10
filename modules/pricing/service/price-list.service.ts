@@ -91,6 +91,28 @@ export const priceListService = {
     }
     return { priceListId: resolved.priceListId.toString(), price: resolved.price.toString() };
   },
+
+  // Map of productId -> "buy 1" price for a set of products at one
+  // warehouse, no customer context. Used by inventory balance listing to
+  // show the same per-store price the checkout screen shows, without a
+  // resolve() round trip per product. A product missing from the map has
+  // no configured price for this warehouse (not an error — resolvePrice
+  // would 404 for it too).
+  async resolveBuyOnePriceMap(
+    tenantId: bigint,
+    warehouseId: bigint,
+    productIds: bigint[],
+  ): Promise<Map<string, string>> {
+    const items = await priceListRepository.findBuyOnePriceItems(tenantId, warehouseId, productIds);
+    const map = new Map<string, string>();
+    for (const item of items) {
+      const key = item.productId.toString();
+      if (!map.has(key)) {
+        map.set(key, item.price.toString());
+      }
+    }
+    return map;
+  },
 };
 
 function toPriceListView(priceList: PriceList & { items: PriceListItem[] }): PriceListView {

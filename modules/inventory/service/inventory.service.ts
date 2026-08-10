@@ -5,6 +5,9 @@ import type { Db } from "@/shared/database/transaction-client";
 import { inventoryRepository } from "../repository/inventory.repository";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
+import { productService } from "@/modules/product/service/product.service";
+import { priceListService } from "@/modules/pricing/service/price-list.service";
+import type { ProductView } from "@/modules/product/types/product.types";
 import type {
   BalanceFilterDto,
   CreateStockAdjustmentDto,
@@ -28,7 +31,40 @@ export const inventoryService = {
       warehouseId: effectiveWarehouseId,
       productId: filter.productId,
     });
-    return balances.map(toBalanceView);
+    if (balances.length === 0) return [];
+
+    const productIds = [...new Set(balances.map((balance) => balance.productId.toString()))].map(BigInt);
+    const products = await productService.getManyByIds(filter.tenantId, productIds);
+    const productById = new Map(products.map((product) => [product.id, product]));
+
+    // Price is per (warehouseId, productId) — group so a caller viewing
+    // every warehouse at once still gets each row priced against its own
+    // warehouse, not whichever warehouse happened to be resolved first.
+    const productIdsByWarehouse = new Map<string, bigint[]>();
+    for (const balance of balances) {
+      const warehouseKey = balance.warehouseId.toString();
+      const existing = productIdsByWarehouse.get(warehouseKey);
+      if (existing) {
+        existing.push(balance.productId);
+      } else {
+        productIdsByWarehouse.set(warehouseKey, [balance.productId]);
+      }
+    }
+    const priceByWarehouseAndProduct = new Map<string, string>();
+    for (const [warehouseKey, warehouseProductIds] of productIdsByWarehouse) {
+      const priceMap = await priceListService.resolveBuyOnePriceMap(
+        filter.tenantId,
+        BigInt(warehouseKey),
+        warehouseProductIds,
+      );
+      for (const [productId, price] of priceMap) {
+        priceByWarehouseAndProduct.set(`${warehouseKey}:${productId}`, price);
+      }
+    }
+
+    return balances.map((balance) =>
+      toBalanceView(balance, productById, priceByWarehouseAndProduct),
+    );
   },
 
   // The module's public API for moving stock — see MODULE_GUIDE.md: other
@@ -144,16 +180,19 @@ function pickAdjustmentTransactionType(quantityDelta: string): InventoryTransact
   return Number(quantityDelta) >= 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT";
 }
 
-function toBalanceView(balance: {
-  warehouseId: bigint;
-  productId: bigint;
-  quantity: Prisma.Decimal;
-  updatedAt: Date;
-}): InventoryBalanceView {
+function toBalanceView(
+  balance: { warehouseId: bigint; productId: bigint; quantity: Prisma.Decimal; updatedAt: Date },
+  productById: Map<string, ProductView>,
+  priceByWarehouseAndProduct: Map<string, string>,
+): InventoryBalanceView {
+  const warehouseId = balance.warehouseId.toString();
+  const productId = balance.productId.toString();
   return {
-    warehouseId: balance.warehouseId.toString(),
-    productId: balance.productId.toString(),
+    warehouseId,
+    productId,
     quantity: balance.quantity.toString(),
     updatedAt: balance.updatedAt.toISOString(),
+    product: productById.get(productId) ?? null,
+    price: priceByWarehouseAndProduct.get(`${warehouseId}:${productId}`) ?? null,
   };
 }

@@ -108,9 +108,23 @@ describe("buildDashboardInsights — low stock", () => {
     const result = buildDashboardInsights(
       baseInput({
         balances: [
-          { warehouseId: "w1", productId: "p1", quantity: String(LOW_STOCK_THRESHOLD + 1), updatedAt: "" },
-          { warehouseId: "w1", productId: "p1", quantity: "3", updatedAt: "" },
-          { warehouseId: "w1", productId: "p1", quantity: String(LOW_STOCK_THRESHOLD), updatedAt: "" },
+          {
+            warehouseId: "w1",
+            productId: "p1",
+            quantity: String(LOW_STOCK_THRESHOLD + 1),
+            updatedAt: "",
+            product: null,
+            price: null,
+          },
+          { warehouseId: "w1", productId: "p1", quantity: "3", updatedAt: "", product: null, price: null },
+          {
+            warehouseId: "w1",
+            productId: "p1",
+            quantity: String(LOW_STOCK_THRESHOLD),
+            updatedAt: "",
+            product: null,
+            price: null,
+          },
         ],
       }),
     );

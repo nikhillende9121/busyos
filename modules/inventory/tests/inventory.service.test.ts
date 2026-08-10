@@ -20,8 +20,18 @@ vi.mock("../repository/inventory.repository", () => ({
   },
 }));
 
+vi.mock("@/modules/product/service/product.service", () => ({
+  productService: { getManyByIds: vi.fn() },
+}));
+
+vi.mock("@/modules/pricing/service/price-list.service", () => ({
+  priceListService: { resolveBuyOnePriceMap: vi.fn() },
+}));
+
 import { prisma } from "@/shared/database/prisma";
 import { inventoryRepository } from "../repository/inventory.repository";
+import { productService } from "@/modules/product/service/product.service";
+import { priceListService } from "@/modules/pricing/service/price-list.service";
 import { inventoryService } from "../service/inventory.service";
 
 describe("inventoryService.recordMovement", () => {
@@ -161,6 +171,30 @@ describe("inventoryService — warehouse scoping", () => {
       warehouseId: 10n,
       productId: undefined,
     });
+    expect(productService.getManyByIds).not.toHaveBeenCalled();
+  });
+
+  it("attaches product details and the per-warehouse buy-1 price to each balance row", async () => {
+    vi.mocked(inventoryRepository.listBalancesByTenant).mockResolvedValue([
+      { warehouseId: 10n, productId: 100n, quantity: new Prisma.Decimal("5"), updatedAt: new Date("2026-01-01") },
+      { warehouseId: 20n, productId: 100n, quantity: new Prisma.Decimal("3"), updatedAt: new Date("2026-01-01") },
+    ] as never);
+    vi.mocked(productService.getManyByIds).mockResolvedValue([
+      { id: "100", sku: "SKU-1", name: "Widget", images: [] } as never,
+    ]);
+    vi.mocked(priceListService.resolveBuyOnePriceMap).mockImplementation(async (_tenantId, warehouseId) =>
+      warehouseId === 10n ? new Map([["100", "199.00"]]) : new Map(),
+    );
+
+    const result = await inventoryService.listBalances({ tenantId: 1n, scopedWarehouseId: null });
+
+    expect(result).toEqual([
+      expect.objectContaining({ warehouseId: "10", productId: "100", price: "199.00" }),
+      expect.objectContaining({ warehouseId: "20", productId: "100", price: null }),
+    ]);
+    expect(result[0].product).toMatchObject({ id: "100", sku: "SKU-1" });
+    expect(priceListService.resolveBuyOnePriceMap).toHaveBeenCalledWith(1n, 10n, [100n]);
+    expect(priceListService.resolveBuyOnePriceMap).toHaveBeenCalledWith(1n, 20n, [100n]);
   });
 
   it("rejects a stock adjustment at a warehouse outside the caller's scope", async () => {

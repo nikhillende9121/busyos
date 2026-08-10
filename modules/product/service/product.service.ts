@@ -28,6 +28,15 @@ export const productService = {
     return toProductView(product);
   },
 
+  // For callers that already have a set of productIds from elsewhere (e.g.
+  // inventory balance rows) and need product details attached in bulk,
+  // rather than one getById call per row.
+  async getManyByIds(tenantId: bigint, productIds: bigint[]): Promise<ProductView[]> {
+    if (productIds.length === 0) return [];
+    const products = await productRepository.findManyByIds(tenantId, productIds);
+    return products.map(toProductView);
+  },
+
   async create(dto: CreateProductDto): Promise<ProductView> {
     await assertReferencesBelongToTenant(dto.tenantId, dto);
     try {

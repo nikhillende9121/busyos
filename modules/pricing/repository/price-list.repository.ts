@@ -1,5 +1,5 @@
 import { prisma } from "@/shared/database/prisma";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PriceListItem } from "@prisma/client";
 
 type ResolveParams = {
   tenantId: bigint;
@@ -89,5 +89,28 @@ export const priceListRepository = {
       }
     }
     return null;
+  },
+
+  // Batched sibling of resolve() for a set of products at once, quantity
+  // fixed at "buy 1" and with no customer/customerGroup context — the same
+  // reduced tier set (warehouse-specific, then tenant default) the store
+  // checkout screen already approximates client-side (see
+  // app/(store)/store/sales/page.tsx's buildPriceHints). One priceList
+  // lookup instead of resolve()'s per-product tier walk, since every
+  // product here shares the same warehouse and no customer.
+  async findBuyOnePriceItems(
+    tenantId: bigint,
+    warehouseId: bigint,
+    productIds: bigint[],
+  ): Promise<PriceListItem[]> {
+    if (productIds.length === 0) return [];
+    const priceList =
+      (await prisma.priceList.findFirst({ where: { tenantId, warehouseId, customerGroupId: null } })) ??
+      (await prisma.priceList.findFirst({ where: { tenantId, isDefault: true } }));
+    if (!priceList) return [];
+    return prisma.priceListItem.findMany({
+      where: { priceListId: priceList.id, productId: { in: productIds }, minQuantity: { lte: 1 } },
+      orderBy: { minQuantity: "desc" },
+    });
   },
 };
