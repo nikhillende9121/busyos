@@ -1,5 +1,6 @@
 import type { NextResponse } from "next/server";
 import type { SuperAdminTokenPair } from "@/modules/super-admin/types/auth.types";
+import { isSecureCookieEnabled } from "./secure-cookie";
 
 // Mirrors lib/auth/session-cookies.ts exactly, but under distinct cookie
 // names — a Super Admin session and a tenant-user session are
@@ -13,7 +14,7 @@ const REFRESH_TOKEN_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
 const baseCookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
+  secure: isSecureCookieEnabled(),
   sameSite: "lax" as const,
   path: "/",
 };

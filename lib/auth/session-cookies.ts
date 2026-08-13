@@ -1,5 +1,6 @@
 import type { NextResponse } from "next/server";
 import type { TokenPair } from "@/modules/auth/types/auth.types";
+import { isSecureCookieEnabled } from "./secure-cookie";
 
 // Server-only: reads/writes the httpOnly cookies that carry the JWT pair
 // issued by modules/auth/service/auth.service.ts. The backend API itself
@@ -23,7 +24,7 @@ const REFRESH_TOKEN_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
 const baseCookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
+  secure: isSecureCookieEnabled(),
   sameSite: "lax" as const,
   path: "/",
 };

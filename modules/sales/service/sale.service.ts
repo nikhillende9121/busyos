@@ -4,6 +4,7 @@ import { prisma } from "@/shared/database/prisma";
 import { saleRepository } from "../repository/sale.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
 import { promotionService } from "@/modules/pricing/service/promotion.service";
+import { priceListService } from "@/modules/pricing/service/price-list.service";
 import { taxService } from "@/modules/pricing/service/tax.service";
 import type { TaxContext } from "@/modules/pricing/types/tax.types";
 import { AppError } from "@/shared/errors/app-error";
@@ -81,6 +82,9 @@ export const saleService = {
       throw new AppError("VALIDATION_ERROR", "warehouseId does not belong to this tenant");
     }
     const products = new Map<string, { categoryId: bigint | null }>();
+    // Index-aligned with dto.items (not keyed by productId) so two lines
+    // for the same product resolve and price independently.
+    const resolvedPrices: string[] = [];
     for (const item of dto.items) {
       const product = await saleRepository.findProductForTenant(dto.tenantId, item.productId);
       if (!product) {
@@ -90,6 +94,16 @@ export const saleService = {
         );
       }
       products.set(item.productId.toString(), { categoryId: product.categoryId });
+      resolvedPrices.push(
+        await resolveItemPrice({
+          tenantId: dto.tenantId,
+          productId: item.productId,
+          warehouseId: dto.warehouseId,
+          quantity: item.quantity,
+          customerGroupId: customer.customerGroupId ?? undefined,
+          customerId: dto.customerId,
+        }),
+      );
     }
 
     // Computed before opening the transaction: an invalid/inapplicable
@@ -100,11 +114,11 @@ export const saleService = {
       customerId: dto.customerId,
       customerGroupId: customer.customerGroupId ?? undefined,
       couponCode: dto.couponCode,
-      lines: dto.items.map((item) => ({
+      lines: dto.items.map((item, index) => ({
         productId: item.productId,
         categoryId: products.get(item.productId.toString())?.categoryId ?? undefined,
         quantity: item.quantity,
-        unitPrice: item.price,
+        unitPrice: resolvedPrices[index],
       })),
     });
 
@@ -143,7 +157,7 @@ export const saleService = {
           saleId: created.id,
           productId: item.productId,
           quantity: new Prisma.Decimal(item.quantity),
-          price: new Prisma.Decimal(item.price),
+          price: new Prisma.Decimal(resolvedPrices[index]),
           tax: new Prisma.Decimal(lineTax.taxTotal),
         });
         saleItemIdByProductId.set(item.productId.toString(), createdItem.id);
@@ -344,6 +358,38 @@ async function advanceFulfillment(
   }
   const updated = await saleRepository.updateStatus(prisma, saleId, nextStatus);
   return toSaleView({ ...updated, items: sale.items, discounts: sale.discounts, charges: sale.charges });
+}
+
+// The server is the sole source of truth for what a line item costs — a
+// client (web or Android) can no longer submit its own price. Resolved
+// fresh from the current price-list configuration for this product+store
+// on every call, same tier order/quantity-break logic as GET /pricing/resolve
+// (modules/pricing/service/price-list.service.ts's resolvePrice). No price
+// list configuring this product for this warehouse is a hard failure, not
+// a fallback to some other price — see Docs/business-rules/pricing.md.
+//
+// Exported for sale-exchange.service.ts to reuse for its replacement-items
+// leg — those are priced no differently than a normal Sale's items.
+export async function resolveItemPrice(params: {
+  tenantId: bigint;
+  productId: bigint;
+  warehouseId: bigint;
+  quantity: string;
+  customerGroupId?: bigint;
+  customerId?: bigint;
+}): Promise<string> {
+  try {
+    const resolved = await priceListService.resolvePrice(params);
+    return resolved.price;
+  } catch (error) {
+    if (error instanceof AppError && error.code === "RESOURCE_NOT_FOUND") {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        `No price is configured for productId ${params.productId.toString()} at this warehouse`,
+      );
+    }
+    throw error;
+  }
 }
 
 // Resolves each requested ExtraCharge (flat, or a percentage of the

@@ -95,7 +95,7 @@ export default function SalesPage() {
     saleDate: new Date().toISOString().slice(0, 10),
     couponCode: "",
     extraChargeIds: [] as string[],
-    items: [{ productId: "", quantity: "", price: "" }],
+    items: [{ productId: "", quantity: "" }],
   };
 
   const form = useForm<FieldValues>({
@@ -226,12 +226,12 @@ export default function SalesPage() {
               control={form.control}
               name="items"
               productOptions={productOptions}
-              columns={[
-                { name: "quantity", label: "Quantity" },
-                { name: "price", label: "Price" },
-              ]}
-              emptyItem={{ productId: "", quantity: "", price: "" }}
+              columns={[{ name: "quantity", label: "Quantity" }]}
+              emptyItem={{ productId: "", quantity: "" }}
             />
+            <p className="text-xs text-muted-foreground">
+              Price is resolved automatically from this store&apos;s price-list configuration.
+            </p>
 
             {(extraCharges ?? []).length > 0 && (
               <div className="space-y-1.5">

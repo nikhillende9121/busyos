@@ -57,9 +57,11 @@ type CartLine = {
 // app/(dashboard)/sales/page.tsx (see git history) — replaced with a
 // checkout-style flow per Docs/STORE_APP_GUIDE.md's "closer to a checkout
 // flow than an admin form" goal: tap products into a cart instead of
-// filling a dynamic form-array row by row. Still the exact same
-// POST /sales payload/validation underneath — only the input surface
-// changed, not the API contract. History (list) mode is unchanged.
+// filling a dynamic form-array row by row. History (list) mode is unchanged.
+// price on a CartLine is a display-only hint (from buildPriceHints below) —
+// POST /sales no longer accepts or trusts a client-supplied price at all;
+// the server resolves it from the current price-list config itself (see
+// modules/sales/service/sale.service.ts's resolveItemPrice).
 export default function StoreSalesPage() {
   const [mode, setMode] = useState<"list" | "checkout">("list");
   const queryClient = useQueryClient();
@@ -227,7 +229,7 @@ function CheckoutScreen({
     });
   };
 
-  const updateLine = (productId: string, patch: Partial<CartLine>) => {
+  const updateLine = (productId: string, patch: Partial<Omit<CartLine, "price">>) => {
     setCart((lines) => lines.map((l) => (l.productId === productId ? { ...l, ...patch } : l)));
   };
 
@@ -255,8 +257,9 @@ function CheckoutScreen({
       toast.error("Add at least one product to the cart.");
       return;
     }
-    if (cart.some((l) => !l.price || Number(l.price) < 0)) {
-      toast.error("Enter a price for every cart line.");
+    const unpriced = cart.filter((l) => !l.price);
+    if (unpriced.length > 0) {
+      toast.error(`No price configured for: ${unpriced.map((l) => l.name).join(", ")}.`);
       return;
     }
 
@@ -268,7 +271,7 @@ function CheckoutScreen({
         saleDate: new Date().toISOString().slice(0, 10),
         couponCode: couponCode || undefined,
         extraChargeIds,
-        items: cart.map((l) => ({ productId: l.productId, quantity: String(l.quantity), price: l.price })),
+        items: cart.map((l) => ({ productId: l.productId, quantity: String(l.quantity) })),
       });
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
@@ -389,13 +392,9 @@ function CheckoutScreen({
                   <Plus className="size-3.5" />
                 </Button>
               </div>
-              <Input
-                type="number"
-                placeholder="Price"
-                className="w-20"
-                value={line.price}
-                onChange={(e) => updateLine(line.productId, { price: e.target.value })}
-              />
+              <span className="w-16 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
+                {line.price || "—"}
+              </span>
               <Button
                 type="button"
                 variant="ghost"

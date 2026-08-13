@@ -154,7 +154,7 @@ function CreateSaleExchangeDialog({
     couponCode: "",
     extraChargeIds: [] as string[],
     paymentMethod: "CASH",
-    newItems: [{ productId: "", quantity: "", price: "" }],
+    newItems: [{ productId: "", quantity: "" }],
   };
 
   const form = useForm<FieldValues>({ defaultValues });
@@ -172,7 +172,7 @@ function CreateSaleExchangeDialog({
       saleId: string;
       reason: string;
       returnItems: { saleItemId: string; quantity: string }[];
-      newItems: { productId: string; quantity: string; price: string }[];
+      newItems: { productId: string; quantity: string }[];
       couponCode?: string;
       extraChargeIds?: string[];
       paymentMethod: string;
@@ -204,7 +204,7 @@ function CreateSaleExchangeDialog({
     }
 
     const newItems = (values.newItems ?? []).filter(
-      (item: { productId: string; quantity: string; price: string }) => item.productId && item.quantity,
+      (item: { productId: string; quantity: string }) => item.productId && item.quantity,
     );
     if (newItems.length === 0) {
       toast.error("Add at least one replacement product.");
@@ -273,12 +273,12 @@ function CreateSaleExchangeDialog({
             control={form.control}
             name="newItems"
             productOptions={productOptions}
-            columns={[
-              { name: "quantity", label: "Quantity" },
-              { name: "price", label: "Price" },
-            ]}
-            emptyItem={{ productId: "", quantity: "", price: "" }}
+            columns={[{ name: "quantity", label: "Quantity" }]}
+            emptyItem={{ productId: "", quantity: "" }}
           />
+          <p className="text-xs text-muted-foreground">
+            Replacement item price is resolved automatically from this store&apos;s price-list configuration.
+          </p>
 
           <div className="space-y-1.5">
             <Label htmlFor="couponCode">Coupon code for replacement items (optional)</Label>

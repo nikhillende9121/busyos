@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { idString } from "@/shared/validation/id";
-import { nonNegativeDecimalString, positiveDecimalString } from "@/shared/validation/decimal";
+import { positiveDecimalString } from "@/shared/validation/decimal";
 
 export const createSaleSchema = z.object({
   customerId: idString,
@@ -12,9 +12,10 @@ export const createSaleSchema = z.object({
       z.object({
         productId: idString,
         quantity: positiveDecimalString,
-        price: nonNegativeDecimalString,
-        // No client-supplied tax — see modules/pricing/service/tax.service.ts.
-        // Computed server-side from the product's tax rate.
+        // No client-supplied price or tax — price is resolved server-side
+        // from the current price-list configuration for this product+store
+        // (modules/pricing/service/price-list.service.ts's resolvePrice),
+        // tax from the product's tax rate (tax.service.ts).
       }),
     )
     .min(1, "at least one item is required"),

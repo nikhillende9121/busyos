@@ -3451,10 +3451,10 @@
                 "sales"
               ]
             },
-            "description": "",
+            "description": "No price field — the server resolves each item's price itself from the current price-list configuration for productId+warehouseId (see GET /pricing/resolve). A client-supplied price is no longer accepted.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"customerId\": \"{{customer_id}}\",\n  \"warehouseId\": \"{{warehouse_id}}\",\n  \"channel\": \"POS\",\n  \"saleDate\": \"2026-08-10T00:00:00.000Z\",\n  \"items\": [\n    {\n      \"productId\": \"{{product_id}}\",\n      \"quantity\": 1,\n      \"price\": 199\n    }\n  ],\n  \"couponCode\": null,\n  \"extraChargeIds\": []\n}",
+              "raw": "{\n  \"customerId\": \"{{customer_id}}\",\n  \"warehouseId\": \"{{warehouse_id}}\",\n  \"channel\": \"POS\",\n  \"saleDate\": \"2026-08-10T00:00:00.000Z\",\n  \"items\": [\n    {\n      \"productId\": \"{{product_id}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"couponCode\": null,\n  \"extraChargeIds\": []\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3767,10 +3767,10 @@
                 "sale-exchanges"
               ]
             },
-            "description": "paymentMethod: CASH|CARD|BANK_TRANSFER|UPI|CHEQUE|CREDIT. Price difference settled on the spot.",
+            "description": "paymentMethod: CASH|CARD|BANK_TRANSFER|UPI|CHEQUE|CREDIT. Price difference settled on the spot. newItems has no price field — resolved server-side the same way as a normal Sale.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"saleId\": \"{{sale_id}}\",\n  \"reason\": \"Wrong size\",\n  \"returnItems\": [\n    {\n      \"saleItemId\": \"{{sale_item_id}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"newItems\": [\n    {\n      \"productId\": \"{{product_id}}\",\n      \"quantity\": 1,\n      \"price\": 219\n    }\n  ],\n  \"couponCode\": null,\n  \"extraChargeIds\": [],\n  \"paymentMethod\": \"CASH\"\n}",
+              "raw": "{\n  \"saleId\": \"{{sale_id}}\",\n  \"reason\": \"Wrong size\",\n  \"returnItems\": [\n    {\n      \"saleItemId\": \"{{sale_item_id}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"newItems\": [\n    {\n      \"productId\": \"{{product_id}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"couponCode\": null,\n  \"extraChargeIds\": [],\n  \"paymentMethod\": \"CASH\"\n}",
               "options": {
                 "raw": {
                   "language": "json"

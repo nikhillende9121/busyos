@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Prisma } from "@prisma/client";
+import { AppError } from "@/shared/errors/app-error";
 
 vi.mock("@/shared/database/prisma", () => ({
   prisma: {
@@ -38,6 +39,12 @@ vi.mock("@/modules/pricing/service/promotion.service", () => ({
   },
 }));
 
+vi.mock("@/modules/pricing/service/price-list.service", () => ({
+  priceListService: {
+    resolvePrice: vi.fn(),
+  },
+}));
+
 vi.mock("@/modules/pricing/service/tax.service", () => ({
   taxService: {
     resolveContext: vi.fn(),
@@ -49,6 +56,7 @@ vi.mock("@/modules/pricing/service/tax.service", () => ({
 import { saleRepository } from "../repository/sale.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
 import { promotionService } from "@/modules/pricing/service/promotion.service";
+import { priceListService } from "@/modules/pricing/service/price-list.service";
 import { taxService } from "@/modules/pricing/service/tax.service";
 import { saleService } from "../service/sale.service";
 
@@ -103,6 +111,7 @@ describe("saleService — warehouse scoping", () => {
     } as never);
     vi.mocked(saleRepository.findWarehouseForTenant).mockResolvedValue({ id: 10n } as never);
     vi.mocked(saleRepository.findProductForTenant).mockResolvedValue({ id: 100n, categoryId: null } as never);
+    vi.mocked(priceListService.resolvePrice).mockResolvedValue({ priceListId: "1", price: "630" } as never);
     vi.mocked(promotionService.quote).mockResolvedValue(EMPTY_QUOTE as never);
     vi.mocked(taxService.resolveContext).mockResolvedValue(DEFAULT_TAX_CONTEXT as never);
     vi.mocked(taxService.computeLinesTax).mockResolvedValue(DEFAULT_LINE_TAX as never);
@@ -117,7 +126,7 @@ describe("saleService — warehouse scoping", () => {
         warehouseId: 10n,
         channel: "POS",
         saleDate: new Date(),
-        items: [{ productId: 100n, quantity: "2", price: "630" }],
+        items: [{ productId: 100n, quantity: "2" }],
         scopedWarehouseId: 999n,
       }),
     ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
@@ -136,7 +145,7 @@ describe("saleService — warehouse scoping", () => {
         warehouseId: 10n,
         channel: "POS",
         saleDate: new Date(),
-        items: [{ productId: 100n, quantity: "2", price: "630" }],
+        items: [{ productId: 100n, quantity: "2" }],
         scopedWarehouseId: 10n,
       }),
     ).resolves.toMatchObject({ warehouseId: "10" });
@@ -210,6 +219,7 @@ describe("saleService.create", () => {
       id: 100n,
       categoryId: null,
     } as never);
+    vi.mocked(priceListService.resolvePrice).mockResolvedValue({ priceListId: "1", price: "630" } as never);
     vi.mocked(saleRepository.createItem).mockResolvedValue(saleRow().items[0] as never);
     vi.mocked(saleRepository.findDiscountsForSale).mockResolvedValue([]);
     vi.mocked(promotionService.quote).mockResolvedValue(EMPTY_QUOTE as never);
@@ -228,7 +238,7 @@ describe("saleService.create", () => {
       warehouseId: 10n,
       channel: "POS",
       saleDate: new Date(),
-      items: [{ productId: 100n, quantity: "2", price: "630" }],
+      items: [{ productId: 100n, quantity: "2" }],
     });
 
     expect(sale.status).toBe("DRAFT");
@@ -252,7 +262,7 @@ describe("saleService.create", () => {
       warehouseId: 10n,
       channel: "ONLINE",
       saleDate: new Date(),
-      items: [{ productId: 100n, quantity: "2", price: "630" }],
+      items: [{ productId: 100n, quantity: "2" }],
     });
 
     expect(sale.status).toBe("PENDING_PAYMENT");
@@ -272,7 +282,7 @@ describe("saleService.create", () => {
         warehouseId: 10n,
         channel: "POS",
         saleDate: new Date(),
-        items: [{ productId: 100n, quantity: "2", price: "630" }],
+        items: [{ productId: 100n, quantity: "2" }],
       }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
 
@@ -297,7 +307,7 @@ describe("saleService.create", () => {
       warehouseId: 10n,
       channel: "POS",
       saleDate: new Date(),
-      items: [{ productId: 100n, quantity: "2", price: "630" }],
+      items: [{ productId: 100n, quantity: "2" }],
       couponCode: "WELCOME10",
     });
 
@@ -309,6 +319,55 @@ describe("saleService.create", () => {
       expect.objectContaining({ saleId: 800n, quote: quoteResult }),
     );
   });
+
+  it("resolves each item's price server-side instead of trusting a client-supplied one", async () => {
+    vi.mocked(saleRepository.create).mockResolvedValue(saleRow({ status: "DRAFT" }) as never);
+    vi.mocked(priceListService.resolvePrice).mockResolvedValue({ priceListId: "9", price: "499.00" } as never);
+
+    await saleService.create({
+      tenantId: 1n,
+      customerId: 30n,
+      warehouseId: 10n,
+      channel: "POS",
+      saleDate: new Date(),
+      items: [{ productId: 100n, quantity: "2" }],
+    });
+
+    expect(priceListService.resolvePrice).toHaveBeenCalledWith({
+      tenantId: 1n,
+      productId: 100n,
+      warehouseId: 10n,
+      quantity: "2",
+      customerGroupId: undefined,
+      customerId: 30n,
+    });
+    expect(promotionService.quote).toHaveBeenCalledWith(
+      expect.objectContaining({ lines: [expect.objectContaining({ unitPrice: "499.00" })] }),
+    );
+    expect(saleRepository.createItem).toHaveBeenCalledWith(
+      "sale-tx",
+      expect.objectContaining({ price: new Prisma.Decimal("499.00") }),
+    );
+  });
+
+  it("rejects creating a sale when no price list configures an item's product for this warehouse", async () => {
+    vi.mocked(priceListService.resolvePrice).mockRejectedValue(
+      new AppError("RESOURCE_NOT_FOUND", "No price is configured for this product"),
+    );
+
+    await expect(
+      saleService.create({
+        tenantId: 1n,
+        customerId: 30n,
+        warehouseId: 10n,
+        channel: "POS",
+        saleDate: new Date(),
+        items: [{ productId: 100n, quantity: "2" }],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    expect(saleRepository.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("saleService.create — tax engine", () => {
@@ -317,6 +376,7 @@ describe("saleService.create — tax engine", () => {
     vi.mocked(saleRepository.findCustomerForTenant).mockResolvedValue({ id: 30n, customerGroupId: null } as never);
     vi.mocked(saleRepository.findWarehouseForTenant).mockResolvedValue({ id: 10n } as never);
     vi.mocked(saleRepository.findProductForTenant).mockResolvedValue({ id: 100n, categoryId: null } as never);
+    vi.mocked(priceListService.resolvePrice).mockResolvedValue({ priceListId: "1", price: "630" } as never);
     vi.mocked(saleRepository.create).mockResolvedValue(saleRow({ status: "DRAFT" }) as never);
     vi.mocked(saleRepository.createItem).mockResolvedValue(saleRow().items[0] as never);
     vi.mocked(saleRepository.findDiscountsForSale).mockResolvedValue([]);
@@ -348,7 +408,7 @@ describe("saleService.create — tax engine", () => {
       warehouseId: 10n,
       channel: "POS",
       saleDate: new Date(),
-      items: [{ productId: 100n, quantity: "2", price: "630" }],
+      items: [{ productId: 100n, quantity: "2" }],
     });
 
     expect(taxService.computeLinesTax).toHaveBeenCalledWith(
@@ -379,7 +439,7 @@ describe("saleService.create — tax engine", () => {
         warehouseId: 10n,
         channel: "POS",
         saleDate: new Date(),
-        items: [{ productId: 100n, quantity: "2", price: "630" }],
+        items: [{ productId: 100n, quantity: "2" }],
       }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
 
@@ -411,7 +471,7 @@ describe("saleService.create — tax engine", () => {
       warehouseId: 10n,
       channel: "POS",
       saleDate: new Date(),
-      items: [{ productId: 100n, quantity: "2", price: "630" }],
+      items: [{ productId: 100n, quantity: "2" }],
       extraChargeIds: [7n],
     });
 
@@ -436,7 +496,7 @@ describe("saleService.create — tax engine", () => {
         warehouseId: 10n,
         channel: "POS",
         saleDate: new Date(),
-        items: [{ productId: 100n, quantity: "2", price: "630" }],
+        items: [{ productId: 100n, quantity: "2" }],
         extraChargeIds: [999n],
       }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });

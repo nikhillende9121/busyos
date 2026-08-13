@@ -6,7 +6,7 @@ import { saleReturnRepository } from "../repository/sale-return.repository";
 import { saleExchangeRepository } from "../repository/sale-exchange.repository";
 import type { SaleExchangeWithDetails } from "../repository/sale-exchange.repository";
 import { computeProratedRefundUnitPrice, RETURNABLE_SALE_STATUSES, toSaleReturnView } from "./sale-return.service";
-import { resolveSaleCharges, toSaleView } from "./sale.service";
+import { resolveItemPrice, resolveSaleCharges, toSaleView } from "./sale.service";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
 import { promotionService } from "@/modules/pricing/service/promotion.service";
 import { taxService } from "@/modules/pricing/service/tax.service";
@@ -72,7 +72,11 @@ export const saleExchangeService = {
     });
 
     // --- Price the replacement side, same pipeline as a normal new Sale ---
+    const customer = await saleRepository.findCustomerForTenant(dto.tenantId, originalSale.customerId);
     const products = new Map<string, { categoryId: bigint | null }>();
+    // Index-aligned with dto.newItems (not keyed by productId) so two lines
+    // for the same product resolve and price independently.
+    const resolvedPrices: string[] = [];
     for (const newItem of dto.newItems) {
       const product = await saleRepository.findProductForTenant(dto.tenantId, newItem.productId);
       if (!product) {
@@ -82,6 +86,16 @@ export const saleExchangeService = {
         );
       }
       products.set(newItem.productId.toString(), { categoryId: product.categoryId });
+      resolvedPrices.push(
+        await resolveItemPrice({
+          tenantId: dto.tenantId,
+          productId: newItem.productId,
+          warehouseId: originalSale.warehouseId,
+          quantity: newItem.quantity,
+          customerGroupId: customer?.customerGroupId ?? undefined,
+          customerId: originalSale.customerId,
+        }),
+      );
     }
 
     const quote = await promotionService.quote({
@@ -89,11 +103,11 @@ export const saleExchangeService = {
       warehouseId: originalSale.warehouseId,
       customerId: originalSale.customerId,
       couponCode: dto.couponCode,
-      lines: dto.newItems.map((item) => ({
+      lines: dto.newItems.map((item, index) => ({
         productId: item.productId,
         categoryId: products.get(item.productId.toString())?.categoryId ?? undefined,
         quantity: item.quantity,
-        unitPrice: item.price,
+        unitPrice: resolvedPrices[index],
       })),
     });
 
@@ -182,7 +196,7 @@ export const saleExchangeService = {
           saleId: newSale.id,
           productId: item.productId,
           quantity: new Prisma.Decimal(item.quantity),
-          price: new Prisma.Decimal(item.price),
+          price: new Prisma.Decimal(resolvedPrices[index]),
           tax: new Prisma.Decimal(lineTax.taxTotal),
         });
         saleItemIdByProductId.set(item.productId.toString(), createdItem.id);

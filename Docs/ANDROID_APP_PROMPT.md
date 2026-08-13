@@ -61,12 +61,13 @@ Every list/detail endpoint is already filtered/scoped server-side to this user's
 
 ## Sales — the core screen, build this like a real checkout
 Not a form. A tap-first flow:
-1. **Product grid**: searchable (by name/SKU/barcode), tap a tile to add to a running cart.
-2. **Cart panel**: quantity steppers per line, a price field per line (there's no product price column server-side — price list resolution isn't exposed to this endpoint, so price is entered per line same as the web version), a running subtotal.
+1. **Product grid**: searchable (by name/SKU/barcode), tap a tile to add to a running cart. `GET /api/v1/inventory/balance` (omit `warehouseId`) returns quantity **and** a resolved `price` per product for this store in one call — use it to show stock and a price hint on each tile, and to prefill each cart line's displayed price.
+2. **Cart panel**: quantity steppers per line, price shown **read-only** (not an editable field — the server is the sole source of truth for price; a client-supplied price is not accepted, see below), a running subtotal computed client-side from the displayed prices as an estimate only.
 3. One **Charge** button at the bottom that does `POST /api/v1/sales`:
 ```json
-{ "customerId": "..", "warehouseId": "<own, from /auth/me>", "channel": "POS", "saleDate": "2026-08-06", "items": [{ "productId": "..", "quantity": "2", "price": "499.00" }], "couponCode": "optional" }
+{ "customerId": "..", "warehouseId": "<own, from /auth/me>", "channel": "POS", "saleDate": "2026-08-06", "items": [{ "productId": "..", "quantity": "2" }], "couponCode": "optional" }
 ```
+No `price` field on an item — the server resolves it itself from the current price-list configuration for that product+warehouse (same logic as `GET /api/v1/pricing/resolve`), every time, and rejects the whole sale with `VALIDATION_ERROR` if no price list configures a given product for this store. If a cart line's price hint came back empty from `/inventory/balance` (nothing configured), warn the user before they tap Charge rather than letting the request fail server-side.
 Then immediately `POST /sales/{id}/confirm` (or leave as draft if you want a separate confirm step — your call, but POS channel skips straight to DRAFT then confirm decrements stock).
 - Sale list/detail screens need lifecycle action buttons that appear only when valid for the current status: Confirm, Process, Pack, Ship, Deliver, Complete, Cancel (`POST /sales/{id}/{action}`) — each is a distinct endpoint, not a generic "advance" call.
 
@@ -85,10 +86,11 @@ POST /api/v1/sale-exchanges
 Body: {
   "saleId": "..", "reason": "...",
   "returnItems": [{ "saleItemId": "..", "quantity": "1" }],
-  "newItems": [{ "productId": "..", "quantity": "1", "price": "599.00" }],
+  "newItems": [{ "productId": "..", "quantity": "1" }],
   "paymentMethod": "CASH"
 }
 ```
+Same rule as Sales — `newItems` has no `price` field; the replacement item(s) are priced server-side the same way.
 Response has `differenceAmount` + `differenceDirection` (`CUSTOMER_OWES` / `REFUND_DUE` / `EVEN`) — show this prominently after submit ("Customer owes ₹100" / "Refund ₹40"). UI: return-item picker (like Sale Returns) + a mini version of the Sales product-grid-and-cart for the replacement items, one screen.
 
 ## Purchases / Purchase Returns / Stock Transfers
@@ -98,7 +100,7 @@ Standard list → detail → lifecycle-action-buttons pattern, same shape as Sal
 - Stock Transfers: create (pick source/destination — this account can be on *either* side), then `ship`/`receive`/`cancel`.
 
 ## Inventory
-`GET /inventory/balance` (omit `warehouseId` — it's forced to the caller's own store automatically) — a simple searchable list of product/quantity. `POST /stock-adjustments` for manual corrections (no list endpoint exists for past adjustments, don't try to build one).
+`GET /inventory/balance` (omit `warehouseId` — it's forced to the caller's own store automatically) — a searchable list of product/quantity/price, including full product details (name, SKU, image) and the resolved price for this store per item. `POST /stock-adjustments` for manual corrections (no list endpoint exists for past adjustments, don't try to build one).
 
 ## Error handling — map these consistently across every screen
 | Code | HTTP | UI treatment |

@@ -3,7 +3,6 @@ import type { SaleChannel } from "@prisma/client";
 export type CreateSaleItemDto = {
   productId: bigint;
   quantity: string;
-  price: string;
 };
 
 export type CreateSaleDto = {

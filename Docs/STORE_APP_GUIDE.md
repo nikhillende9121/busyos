@@ -135,7 +135,9 @@ they land right after login, not a hard wall between the two areas.
   change it (there's nothing else to pick).
 - **Sales create flow is a real checkout screen**, not a form: a
   searchable product grid (tap a tile to add to cart), a cart panel with
-  quantity steppers and a per-line price field, and a single "Charge
+  quantity steppers and a per-line price shown read-only (price is
+  resolved server-side, not client-editable — see `resolveItemPrice` in
+  `modules/sales/service/sale.service.ts`), and a single "Charge
   <amount>" action — same `POST /sales` payload/validation as the
   dashboard underneath, just a tap-first input surface instead of a
   dynamic form array.

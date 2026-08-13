@@ -43,7 +43,6 @@ export const saleExchangeController = {
         newItems: input.newItems.map((item) => ({
           productId: BigInt(item.productId),
           quantity: item.quantity,
-          price: item.price,
         })),
         couponCode: input.couponCode,
         extraChargeIds: input.extraChargeIds?.map((id) => BigInt(id)),

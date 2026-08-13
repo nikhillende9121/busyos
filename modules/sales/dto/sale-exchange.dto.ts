@@ -8,7 +8,6 @@ export type CreateSaleExchangeReturnItemDto = {
 export type CreateSaleExchangeNewItemDto = {
   productId: bigint;
   quantity: string;
-  price: string;
 };
 
 export type CreateSaleExchangeDto = {

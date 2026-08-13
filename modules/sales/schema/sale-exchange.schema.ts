@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { idString } from "@/shared/validation/id";
-import { nonNegativeDecimalString, positiveDecimalString } from "@/shared/validation/decimal";
+import { positiveDecimalString } from "@/shared/validation/decimal";
 
 export const createSaleExchangeSchema = z.object({
   saleId: idString,
@@ -18,7 +18,8 @@ export const createSaleExchangeSchema = z.object({
       z.object({
         productId: idString,
         quantity: positiveDecimalString,
-        price: nonNegativeDecimalString,
+        // No client-supplied price — resolved server-side the same way as
+        // a normal Sale (see modules/sales/schema/sale.schema.ts).
       }),
     )
     .min(1, "at least one replacement item is required"),
