@@ -821,11 +821,12 @@ model CustomerGroup {
   @@map("customer_groups")
 }
 
-// Exactly one PriceList per tenant should have isDefault = true with no
-// warehouseId/customerGroupId/customerId set — the service layer must
-// refuse to delete or deactivate the last such row, since every product
-// needs a fallback price. See pricing.md -> Price Resolution Order for how
-// warehouseId/customerGroupId/customerId combine to pick a match.
+// isDefault is data only — resolve() (modules/pricing/repository/
+// price-list.repository.ts) never consults it; a product with no price
+// configured at a more specific tier (customer/warehouse/customerGroup)
+// simply has no price, rather than falling back to a tenant-wide default.
+// See pricing.md -> Price Resolution Order for how warehouseId/
+// customerGroupId/customerId combine to pick a match.
 model PriceList {
   id              BigInt    @id @default(autoincrement())
   tenantId        BigInt

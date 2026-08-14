@@ -99,8 +99,10 @@ export const stockTransferController = {
 
   async receive(request: NextRequest, auth: AuthContext, params: StockTransferParams) {
     try {
+
       const id = idString.parse(params.id);
       const body = await request.json();
+      console.log(body);
       const input = receiveStockTransferSchema.parse(body);
       const transfer = await stockTransferService.receive({
         tenantId: auth.tenantId,

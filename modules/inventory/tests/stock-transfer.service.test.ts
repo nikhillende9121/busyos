@@ -349,6 +349,21 @@ describe("stockTransferService.receive", () => {
     expect(inventoryService.recordMovement).not.toHaveBeenCalled();
   });
 
+  it("rejects receiving when shippedQuantity was never recorded (null treated as zero available, not unlimited)", async () => {
+    vi.mocked(stockTransferRepository.findByIdForTenant).mockResolvedValue(
+      transferRow({ status: "IN_TRANSIT" }) as never, // items[0].shippedQuantity is null by default
+    );
+
+    await expect(
+      stockTransferService.receive({
+        tenantId: 1n,
+        transferId: 400n,
+        items: [{ stockTransferItemId: 500n, receivedQuantity: "5" }],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(inventoryService.recordMovement).not.toHaveBeenCalled();
+  });
+
   it("rejects receivedQuantity greater than shippedQuantity", async () => {
     vi.mocked(stockTransferRepository.findByIdForTenant).mockResolvedValue(
       transferRow({

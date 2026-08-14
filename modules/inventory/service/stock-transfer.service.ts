@@ -52,7 +52,18 @@ function resolveStageQuantities(
     }
     const quantity = new Prisma.Decimal(request.quantity);
     const cap = capSelector(item);
-    if (cap !== null && quantity.greaterThan(cap)) {
+    // null means the previous stage never recorded a quantity for this item
+    // at all — treat that as zero available, not "no limit". Reachable only
+    // via inconsistent data (the normal approve/ship path always sets every
+    // item's quantity — see the requestIds check above), but if it happens,
+    // this must still reject rather than let receive/ship through unbounded.
+    if (cap === null) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        `Cannot set ${capLabel} for product ${item.productId.toString()} — no quantity was recorded at the previous stage`,
+      );
+    }
+    if (quantity.greaterThan(cap)) {
       throw new AppError(
         "VALIDATION_ERROR",
         `Cannot set ${capLabel} to ${quantity.toString()} for product ${item.productId.toString()} — only ${cap.toString()} is available from the previous stage`,

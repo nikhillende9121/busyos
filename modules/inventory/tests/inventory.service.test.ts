@@ -174,6 +174,18 @@ describe("inventoryService — warehouse scoping", () => {
     expect(productService.getManyByIds).not.toHaveBeenCalled();
   });
 
+  it("passes a search term through to the repository, for matching a scanned barcode", async () => {
+    vi.mocked(inventoryRepository.listBalancesByTenant).mockResolvedValue([]);
+
+    await inventoryService.listBalances({ tenantId: 1n, scopedWarehouseId: 10n, search: "8901234567890" });
+
+    expect(inventoryRepository.listBalancesByTenant).toHaveBeenCalledWith(1n, {
+      warehouseId: 10n,
+      productId: undefined,
+      search: "8901234567890",
+    });
+  });
+
   it("attaches product details and the per-warehouse buy-1 price to each balance row", async () => {
     vi.mocked(inventoryRepository.listBalancesByTenant).mockResolvedValue([
       { warehouseId: 10n, productId: 100n, quantity: new Prisma.Decimal("5"), updatedAt: new Date("2026-01-01") },

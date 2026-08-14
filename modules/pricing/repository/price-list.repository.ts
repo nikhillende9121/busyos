@@ -17,6 +17,17 @@ function findBestItem(priceListId: bigint, productId: bigint, quantity: Prisma.D
   });
 }
 
+// The single applicable PriceList for a warehouse with no customer/
+// customerGroup context — shared by findBuyOnePriceItems and
+// findPricedProductIds below, both of which need "which one list applies
+// here" before touching items. A tenant-wide default PriceList is never
+// considered here — only a price actually configured for this specific
+// warehouse counts (see Docs/business-rules/pricing.md -> Price Resolution
+// Order).
+function findListForWarehouse(tenantId: bigint, warehouseId: bigint) {
+  return prisma.priceList.findFirst({ where: { tenantId, warehouseId, customerGroupId: null } });
+}
+
 export const priceListRepository = {
   findManyByTenant(tenantId: bigint) {
     return prisma.priceList.findMany({
@@ -58,7 +69,9 @@ export const priceListRepository = {
   // Price Resolution Order), returning the first tier whose matched
   // PriceList *also* has an item for this product at this quantity. A tier
   // matching the PriceList but missing the product falls through to the
-  // next tier, per that doc.
+  // next tier, per that doc. No tenant-wide default tier — a product with
+  // nothing configured at any of these specific tiers has no price, full
+  // stop, rather than silently falling back to a default list.
   async resolve(params: ResolveParams): Promise<{ priceListId: bigint; price: Prisma.Decimal } | null> {
     const tiers: Prisma.PriceListWhereInput[] = [];
 
@@ -78,7 +91,6 @@ export const priceListRepository = {
     if (params.customerGroupId !== undefined) {
       tiers.push({ tenantId: params.tenantId, customerGroupId: params.customerGroupId, warehouseId: null });
     }
-    tiers.push({ tenantId: params.tenantId, isDefault: true });
 
     for (const where of tiers) {
       const priceList = await prisma.priceList.findFirst({ where });
@@ -93,24 +105,37 @@ export const priceListRepository = {
 
   // Batched sibling of resolve() for a set of products at once, quantity
   // fixed at "buy 1" and with no customer/customerGroup context — the same
-  // reduced tier set (warehouse-specific, then tenant default) the store
-  // checkout screen already approximates client-side (see
-  // app/(store)/store/sales/page.tsx's buildPriceHints). One priceList
-  // lookup instead of resolve()'s per-product tier walk, since every
-  // product here shares the same warehouse and no customer.
+  // reduced, warehouse-only tier the store checkout screen already
+  // approximates client-side (see app/(store)/store/sales/page.tsx's
+  // buildPriceHints). One priceList lookup instead of resolve()'s
+  // per-product tier walk, since every product here shares the same
+  // warehouse and no customer.
   async findBuyOnePriceItems(
     tenantId: bigint,
     warehouseId: bigint,
     productIds: bigint[],
   ): Promise<PriceListItem[]> {
     if (productIds.length === 0) return [];
-    const priceList =
-      (await prisma.priceList.findFirst({ where: { tenantId, warehouseId, customerGroupId: null } })) ??
-      (await prisma.priceList.findFirst({ where: { tenantId, isDefault: true } }));
+    const priceList = await findListForWarehouse(tenantId, warehouseId);
     if (!priceList) return [];
     return prisma.priceListItem.findMany({
       where: { priceListId: priceList.id, productId: { in: productIds }, minQuantity: { lte: 1 } },
       orderBy: { minQuantity: "desc" },
     });
+  },
+
+  // Every productId this warehouse's applicable price list has an entry
+  // for, at any quantity tier — used to filter a product listing down to
+  // "only what's actually priced for this store" (GET /products), not just
+  // to price already-known products.
+  async findPricedProductIds(tenantId: bigint, warehouseId: bigint): Promise<bigint[]> {
+    const priceList = await findListForWarehouse(tenantId, warehouseId);
+    if (!priceList) return [];
+    const items = await prisma.priceListItem.findMany({
+      where: { priceListId: priceList.id },
+      select: { productId: true },
+      distinct: ["productId"],
+    });
+    return items.map((item) => item.productId);
   },
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm, Controller, type FieldValues } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -28,8 +28,13 @@ type Row = StockTransferView & { fromName: string; toName: string };
 
 export default function StockTransfersPage() {
   const queryClient = useQueryClient();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  // A warehouse-scoped user (Store Manager role reaching this page instead
+  // of /store) can only ever request stock into their own store — the
+  // server rejects any other toWarehouseId (assertWarehouseAccess in
+  // stock-transfer.service.ts), so don't make them pick it themselves.
+  const scopedWarehouseId = user?.warehouseId ?? null;
 
   const { data: transfers, isLoading } = useQuery({
     queryKey: queryKeys.list("stock-transfers"),
@@ -70,7 +75,7 @@ export default function StockTransfersPage() {
   }));
 
   const defaultFormValues = {
-    toWarehouseId: "",
+    toWarehouseId: scopedWarehouseId ?? "",
     transferDate: new Date().toISOString().slice(0, 10),
     items: [{ productId: "", requestedQuantity: "" }],
   };
@@ -82,6 +87,16 @@ export default function StockTransfersPage() {
     resolver: zodResolver(createStockTransferSchema as never),
     defaultValues: defaultFormValues,
   });
+
+  // `user` (and so scopedWarehouseId) loads async after this form's initial
+  // mount — seed toWarehouseId once it arrives so a scoped user isn't
+  // blocked by "required" validation on a field they never see a picker for.
+  useEffect(() => {
+    if (scopedWarehouseId) {
+      form.setValue("toWarehouseId", scopedWarehouseId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedWarehouseId]);
 
   const createMutation = useMutation({
     mutationFn: (values: FieldValues) => apiClient.post<StockTransferView>("/stock-transfers", values),
@@ -132,27 +147,34 @@ export default function StockTransfersPage() {
             <p className="text-sm text-muted-foreground">
               The source warehouse is chosen later, when this request is approved.
             </p>
-            <div className="space-y-1.5">
-              <Label>To warehouse</Label>
-              <Controller
-                control={form.control}
-                name="toWarehouseId"
-                render={({ field }) => (
-                  <Select value={field.value ?? ""} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select warehouse" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(warehouses ?? []).map((w) => (
-                        <SelectItem key={w.id} value={w.id}>
-                          {w.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
+            {scopedWarehouseId ? (
+              <div className="space-y-1.5">
+                <Label>To warehouse</Label>
+                <p className="text-sm">{user?.warehouseName ?? scopedWarehouseId}</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label>To warehouse</Label>
+                <Controller
+                  control={form.control}
+                  name="toWarehouseId"
+                  render={({ field }) => (
+                    <Select value={field.value ?? ""} onValueChange={field.onChange}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select warehouse" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(warehouses ?? []).map((w) => (
+                          <SelectItem key={w.id} value={w.id}>
+                            {w.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label htmlFor="transferDate">Transfer date</Label>

@@ -16,7 +16,12 @@ vi.mock("../repository/product.repository", () => ({
   },
 }));
 
+vi.mock("@/modules/pricing/service/price-list.service", () => ({
+  priceListService: { findPricedProductIds: vi.fn() },
+}));
+
 import { productRepository } from "../repository/product.repository";
+import { priceListService } from "@/modules/pricing/service/price-list.service";
 import { productService } from "../service/product.service";
 
 function productRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -63,6 +68,64 @@ describe("productService.list", () => {
     );
     expect(result.items[0]).toMatchObject({ id: "100", sku: "RICE-5KG" });
     expect(result.pagination).toEqual({ page: 2, pageSize: 20, total: 45, totalPages: 3 });
+    expect(priceListService.findPricedProductIds).not.toHaveBeenCalled();
+  });
+
+  it("restricts to priced productIds when an explicit warehouseId is given", async () => {
+    vi.mocked(productRepository.findManyByTenant).mockResolvedValue([] as never);
+    vi.mocked(productRepository.countByTenant).mockResolvedValue(0);
+    vi.mocked(priceListService.findPricedProductIds).mockResolvedValue([100n, 101n]);
+
+    await productService.list({
+      tenantId: 1n,
+      page: 1,
+      pageSize: 20,
+      sortBy: "name",
+      sortDir: "asc",
+      warehouseId: 10n,
+    });
+
+    expect(priceListService.findPricedProductIds).toHaveBeenCalledWith(1n, 10n);
+    expect(productRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ productIds: [100n, 101n] }),
+    );
+    expect(productRepository.countByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ productIds: [100n, 101n] }),
+    );
+  });
+
+  it("falls back to the caller's own scoped warehouse when no explicit warehouseId is given", async () => {
+    vi.mocked(productRepository.findManyByTenant).mockResolvedValue([] as never);
+    vi.mocked(productRepository.countByTenant).mockResolvedValue(0);
+    vi.mocked(priceListService.findPricedProductIds).mockResolvedValue([]);
+
+    await productService.list({
+      tenantId: 1n,
+      page: 1,
+      pageSize: 20,
+      sortBy: "name",
+      sortDir: "asc",
+      scopedWarehouseId: 10n,
+    });
+
+    expect(priceListService.findPricedProductIds).toHaveBeenCalledWith(1n, 10n);
+  });
+
+  it("rejects a scoped caller requesting a different warehouse's pricing view", async () => {
+    await expect(
+      productService.list({
+        tenantId: 1n,
+        page: 1,
+        pageSize: 20,
+        sortBy: "name",
+        sortDir: "asc",
+        warehouseId: 999n,
+        scopedWarehouseId: 10n,
+      }),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    expect(productRepository.findManyByTenant).not.toHaveBeenCalled();
   });
 });
 

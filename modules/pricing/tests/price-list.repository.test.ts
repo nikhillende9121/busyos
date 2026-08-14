@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 vi.mock("@/shared/database/prisma", () => ({
   prisma: {
     priceList: { findFirst: vi.fn() },
-    priceListItem: { findFirst: vi.fn() },
+    priceListItem: { findFirst: vi.fn(), findMany: vi.fn() },
   },
 }));
 
@@ -77,15 +77,11 @@ describe("priceListRepository.resolve", () => {
     expect(prisma.priceListItem.findFirst).toHaveBeenCalledTimes(2);
   });
 
-  it("falls back to the tenant default when nothing more specific matches", async () => {
+  it("returns null when nothing more specific matches, never falling back to a tenant-wide default", async () => {
     vi.mocked(prisma.priceList.findFirst)
       .mockResolvedValueOnce(null) // combo
       .mockResolvedValueOnce(null) // warehouse-only
-      .mockResolvedValueOnce(null) // group-only
-      .mockResolvedValueOnce({ id: 9n } as never); // tenant default
-    vi.mocked(prisma.priceListItem.findFirst).mockResolvedValueOnce({
-      price: new Prisma.Decimal("100"),
-    } as never);
+      .mockResolvedValueOnce(null); // group-only
 
     const result = await priceListRepository.resolve({
       tenantId: 1n,
@@ -95,11 +91,9 @@ describe("priceListRepository.resolve", () => {
       quantity: new Prisma.Decimal("1"),
     });
 
-    expect(result).toEqual({ priceListId: 9n, price: new Prisma.Decimal("100") });
-    expect(prisma.priceList.findFirst).toHaveBeenCalledTimes(4);
-    expect(prisma.priceList.findFirst).toHaveBeenLastCalledWith({
-      where: { tenantId: 1n, isDefault: true },
-    });
+    expect(result).toBeNull();
+    expect(prisma.priceList.findFirst).toHaveBeenCalledTimes(3);
+    expect(prisma.priceList.findFirst).not.toHaveBeenCalledWith({ where: { tenantId: 1n, isDefault: true } });
   });
 
   it("returns null when no tier matches at all", async () => {
@@ -133,5 +127,58 @@ describe("priceListRepository.resolve", () => {
     });
 
     expect(result).toEqual({ priceListId: 1n, price: new Prisma.Decimal("90") });
+  });
+});
+
+describe("priceListRepository.findBuyOnePriceItems", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("returns nothing when this warehouse has no price list, never falling back to a tenant-wide default", async () => {
+    vi.mocked(prisma.priceList.findFirst).mockResolvedValue(null);
+
+    const result = await priceListRepository.findBuyOnePriceItems(1n, 10n, [100n]);
+
+    expect(result).toEqual([]);
+    expect(prisma.priceList.findFirst).toHaveBeenCalledTimes(1);
+    expect(prisma.priceList.findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 1n, warehouseId: 10n, customerGroupId: null },
+    });
+  });
+});
+
+describe("priceListRepository.findPricedProductIds", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("returns nothing when this warehouse has no price list, never falling back to a tenant-wide default", async () => {
+    vi.mocked(prisma.priceList.findFirst).mockResolvedValue(null);
+
+    const result = await priceListRepository.findPricedProductIds(1n, 10n);
+
+    expect(result).toEqual([]);
+    expect(prisma.priceList.findFirst).toHaveBeenCalledTimes(1);
+    expect(prisma.priceList.findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 1n, warehouseId: 10n, customerGroupId: null },
+    });
+  });
+
+  it("returns every distinct productId on the warehouse's price list", async () => {
+    vi.mocked(prisma.priceList.findFirst).mockResolvedValue({ id: 5n } as never);
+    vi.mocked(prisma.priceListItem.findMany).mockResolvedValue([
+      { productId: 100n },
+      { productId: 101n },
+    ] as never);
+
+    const result = await priceListRepository.findPricedProductIds(1n, 10n);
+
+    expect(result).toEqual([100n, 101n]);
+    expect(prisma.priceListItem.findMany).toHaveBeenCalledWith({
+      where: { priceListId: 5n },
+      select: { productId: true },
+      distinct: ["productId"],
+    });
   });
 });

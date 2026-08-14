@@ -113,6 +113,13 @@ export const priceListService = {
     }
     return map;
   },
+
+  // Every productId priced for this warehouse, at any quantity tier — see
+  // modules/product/service/product.service.ts's list(), which uses this
+  // to filter the product catalog down to "only what has a price here".
+  findPricedProductIds(tenantId: bigint, warehouseId: bigint): Promise<bigint[]> {
+    return priceListRepository.findPricedProductIds(tenantId, warehouseId);
+  },
 };
 
 function toPriceListView(priceList: PriceList & { items: PriceListItem[] }): PriceListView {

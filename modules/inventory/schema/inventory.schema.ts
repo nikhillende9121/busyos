@@ -9,6 +9,9 @@ const decimalString = z
 export const balanceQuerySchema = z.object({
   warehouseId: idString.optional(),
   productId: idString.optional(),
+  // Matches product name, SKU, or barcode — a barcode scan sends the
+  // scanned code through this same param, not a separate one.
+  search: z.string().max(200).optional(),
 });
 export type BalanceQuery = z.infer<typeof balanceQuerySchema>;
 

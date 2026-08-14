@@ -2982,7 +2982,7 @@
             "description": "Source warehouse is only chosen at approve time.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"toWarehouseId\": \"{{warehouse_id}}\",\n  \"transferDate\": \"2026-08-10T00:00:00.000Z\",\n  \"items\": [\n    {\n      \"productId\": \"{{product_id}}\",\n      \"requestedQuantity\": 10\n    }\n  ]\n}",
+              "raw": "{\n  \"toWarehouseId\": \"{{warehouse_id}}\",\n  \"transferDate\": \"2026-08-10T00:00:00.000Z\",\n  \"items\": [\n    {\n      \"productId\": \"{{product_id}}\",\n      \"requestedQuantity\": \"10\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3039,7 +3039,7 @@
             "description": "Permission STOCK_TRANSFER.APPROVE.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fromWarehouseId\": \"{{warehouse_id}}\",\n  \"items\": [\n    {\n      \"stockTransferItemId\": \"{{stock_transfer_item_id}}\",\n      \"approvedQuantity\": 10\n    }\n  ]\n}",
+              "raw": "{\n  \"fromWarehouseId\": \"{{warehouse_id}}\",\n  \"items\": [\n    {\n      \"stockTransferItemId\": \"{{stock_transfer_item_id}}\",\n      \"approvedQuantity\": \"10\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3075,7 +3075,7 @@
             "description": "",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"items\": [\n    {\n      \"stockTransferItemId\": \"{{stock_transfer_item_id}}\",\n      \"shippedQuantity\": 10\n    }\n  ]\n}",
+              "raw": "{\n  \"items\": [\n    {\n      \"stockTransferItemId\": \"{{stock_transfer_item_id}}\",\n      \"shippedQuantity\": \"10\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3111,7 +3111,7 @@
             "description": "",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"items\": [\n    {\n      \"stockTransferItemId\": \"{{stock_transfer_item_id}}\",\n      \"receivedQuantity\": 10\n    }\n  ]\n}",
+              "raw": "{\n  \"items\": [\n    {\n      \"stockTransferItemId\": \"{{stock_transfer_item_id}}\",\n      \"receivedQuantity\": \"10\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"

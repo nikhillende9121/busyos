@@ -36,4 +36,12 @@ export type ProductListDto = {
   status?: ProductStatus;
   categoryId?: bigint;
   search?: string;
+  // When set (explicitly, or via scopedWarehouseId below), the list is
+  // restricted to products priced for this warehouse — see
+  // product.service.ts's list().
+  warehouseId?: bigint;
+  // The caller's warehouse scope (see Docs/business-rules/roles-and-permissions.md
+  // -> Warehouse-Scoped Users), not business data — null/omitted means
+  // unrestricted.
+  scopedWarehouseId?: bigint | null;
 };

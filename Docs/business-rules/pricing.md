@@ -12,10 +12,9 @@ resolved design for base selling price; `discounts-and-coupons.md` covers
 promotional price reductions on top of it. See
 `Docs/decisions/0005-multi-level-pricing-and-promotions.md` for the ADR.
 
-`PriceList` update/delete are deliberately deferred: deleting one needs a
-"never remove the last tenant-wide default" guard that isn't implemented
-yet. Until then, price lists are effectively append-only — correct a
-mistake by creating a new one, not editing/removing the old one.
+`PriceList` update/delete are deliberately deferred — price lists are
+effectively append-only for now; correct a mistake by creating a new one,
+not editing/removing the old one.
 
 ## Requirement
 
@@ -69,14 +68,21 @@ candidate `PriceList`s and pick the **most specific match**, in this order
 2. warehouseId + customerGroupId match   (this store, this customer's group)
 3. warehouseId match           (this store, any customer)
 4. customerGroupId match       (any store, this customer's group)
-5. tenant default              (warehouseId = null, customerGroupId = null, customerId = null)
 ```
 
+**No tenant-wide default tier.** A product with nothing configured at any
+of tiers 1–4 has no price — `resolve()` returns null (surfaced as
+`RESOURCE_NOT_FOUND` by `resolvePrice`, or a hard rejection at sale
+creation — see `modules/sales/service/sale.service.ts`'s
+`resolveItemPrice`), not a silent fallback to some tenant-wide price.
+`PriceList.isDefault` still exists as a data flag but is never consulted by
+resolution — every price a customer actually pays must come from a tier
+that's specific to at least a store or a customer/group, never a bare
+tenant-wide catch-all. (This reverses this document's earlier design,
+which had a tier 5 "tenant default" fallback.)
+
 Within whichever `PriceList` is selected, pick the `PriceListItem` with the
-largest `minQuantity` that is `<= requested quantity`. A tenant must always
-have exactly one default `PriceList` (tier 5) per active currency — the
-service layer should refuse to let the last default list be deleted or
-deactivated, since every product needs a fallback price.
+largest `minQuantity` that is `<= requested quantity`.
 
 ## Open Decisions (still unresolved)
 

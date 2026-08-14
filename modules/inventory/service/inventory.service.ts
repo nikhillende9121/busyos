@@ -30,6 +30,7 @@ export const inventoryService = {
     const balances = await inventoryRepository.listBalancesByTenant(filter.tenantId, {
       warehouseId: effectiveWarehouseId,
       productId: filter.productId,
+      search: filter.search,
     });
     if (balances.length === 0) return [];
 

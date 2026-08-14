@@ -4,6 +4,9 @@ export type BalanceFilterDto = {
   tenantId: bigint;
   warehouseId?: bigint;
   productId?: bigint;
+  // Matches the product's name, SKU, or barcode — see
+  // modules/inventory/repository/inventory.repository.ts.
+  search?: string;
   scopedWarehouseId?: bigint | null;
 };
 

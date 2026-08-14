@@ -30,6 +30,8 @@ export const productController = {
         status: query.status,
         categoryId: query.categoryId ? BigInt(query.categoryId) : undefined,
         search: query.search,
+        warehouseId: query.warehouseId ? BigInt(query.warehouseId) : undefined,
+        scopedWarehouseId: auth.warehouseId,
       });
       return successResponse(result, "Products retrieved");
     } catch (error) {

@@ -15,6 +15,7 @@ export const inventoryController = {
         tenantId: auth.tenantId,
         warehouseId: query.warehouseId ? BigInt(query.warehouseId) : undefined,
         productId: query.productId ? BigInt(query.productId) : undefined,
+        search: query.search,
         scopedWarehouseId: auth.warehouseId,
       });
       return successResponse(balances, "Inventory balance retrieved");

@@ -23,14 +23,14 @@ import type { InventoryBalanceView } from "@/modules/inventory/types/inventory.t
 import type { PriceListView } from "@/modules/pricing/types/price-list.types";
 import type { Paginated } from "@/shared/utils/pagination";
 
-// Best-effort "buy 1" price per product, from whichever price list applies
-// to this store: a warehouse-specific list wins over the tenant-wide
-// default, same priority order as the authoritative server-side resolver
-// (modules/pricing/service/price-list.service.ts's resolvePrice) — this is
-// a display hint only, still editable per cart line, so an approximation
-// (lowest minQuantity tier, not full resolve() semantics) is acceptable.
+// Best-effort "buy 1" price per product, from this store's own price list
+// only — no tenant-wide default fallback, matching the authoritative
+// server-side resolver (modules/pricing/repository/price-list.repository.ts's
+// resolve()). This is a display hint only, still editable per cart line, so
+// an approximation (lowest minQuantity tier, not full resolve() semantics)
+// is acceptable.
 function buildPriceHints(priceLists: PriceListView[], warehouseId: string): Map<string, string> {
-  const list = priceLists.find((pl) => pl.warehouseId === warehouseId) ?? priceLists.find((pl) => pl.isDefault);
+  const list = priceLists.find((pl) => pl.warehouseId === warehouseId);
   if (!list) return new Map();
   const bestTierByProduct = new Map<string, { price: string; minQuantity: number }>();
   for (const item of list.items) {

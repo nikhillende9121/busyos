@@ -30,5 +30,9 @@ export const listProductsQuerySchema = z.object({
   status: productStatusSchema.optional(),
   categoryId: idString.optional(),
   search: z.string().max(200).optional(),
+  // When set (explicitly, or implied by a warehouse-scoped caller), only
+  // products priced for this warehouse are returned — see
+  // modules/product/service/product.service.ts's list().
+  warehouseId: idString.optional(),
 });
 export type ListProductsQuery = z.infer<typeof listProductsQuerySchema>;

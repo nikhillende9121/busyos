@@ -5,6 +5,12 @@ type ProductFilter = {
   status?: string;
   categoryId?: bigint;
   search?: string;
+  // Restricts to this exact set of ids — used to filter the catalog down
+  // to "only what's priced for this warehouse" (see product.service.ts's
+  // list()). Undefined means no restriction; an empty array (a warehouse
+  // with nothing priced at all) deliberately yields zero rows, not
+  // "unrestricted".
+  productIds?: bigint[];
 };
 
 type ProductSort = {
@@ -18,6 +24,7 @@ function whereClause(tenantId: bigint, filter: ProductFilter): Prisma.ProductWhe
     deletedAt: null,
     ...(filter.status ? { status: filter.status as Prisma.ProductWhereInput["status"] } : {}),
     ...(filter.categoryId !== undefined ? { categoryId: filter.categoryId } : {}),
+    ...(filter.productIds !== undefined ? { id: { in: filter.productIds } } : {}),
     ...(filter.search
       ? {
           OR: [

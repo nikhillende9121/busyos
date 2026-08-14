@@ -5,6 +5,10 @@ import type { Db } from "@/shared/database/transaction-client";
 type BalanceFilter = {
   warehouseId?: bigint;
   productId?: bigint;
+  // Matches the product's name, SKU, or barcode — a barcode scan sends the
+  // scanned code through this same param, so barcode must be an exact
+  // "contains" match candidate alongside name/sku, not just a prefix.
+  search?: string;
 };
 
 export const inventoryRepository = {
@@ -14,6 +18,17 @@ export const inventoryRepository = {
         tenantId,
         ...(filter.warehouseId !== undefined ? { warehouseId: filter.warehouseId } : {}),
         ...(filter.productId !== undefined ? { productId: filter.productId } : {}),
+        ...(filter.search
+          ? {
+              product: {
+                OR: [
+                  { name: { contains: filter.search } },
+                  { sku: { contains: filter.search } },
+                  { barcode: { contains: filter.search } },
+                ],
+              },
+            }
+          : {}),
       },
       orderBy: [{ warehouseId: "asc" }, { productId: "asc" }],
     });

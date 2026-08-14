@@ -2,17 +2,36 @@ import { Prisma } from "@prisma/client";
 import type { Product, ProductImage } from "@prisma/client";
 import { productRepository } from "../repository/product.repository";
 import { AppError } from "@/shared/errors/app-error";
+import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import { buildPagination, type Paginated } from "@/shared/utils/pagination";
+import { priceListService } from "@/modules/pricing/service/price-list.service";
 import { toProductImageView } from "./product-image-view.mapper";
 import type { CreateProductDto, UpdateProductDto, ProductListDto } from "../dto/product.dto";
 import type { ProductView } from "../types/product.types";
 
 export const productService = {
+  // An explicit warehouseId (or a scoped caller's own warehouse, if none is
+  // given) restricts the catalog to products actually priced there — see
+  // modules/pricing/service/price-list.service.ts's findPricedProductIds.
+  // No warehouse context at all (an unscoped caller browsing the full
+  // catalog for management, not a store) skips the restriction entirely,
+  // same as before this filter existed.
   async list(filter: ProductListDto): Promise<Paginated<ProductView>> {
+    const scopedWarehouseId = filter.scopedWarehouseId ?? null;
+    if (filter.warehouseId !== undefined) {
+      assertWarehouseAccess({ warehouseId: scopedWarehouseId }, filter.warehouseId);
+    }
+    const effectiveWarehouseId = filter.warehouseId ?? scopedWarehouseId ?? undefined;
+    const productIds =
+      effectiveWarehouseId !== undefined
+        ? await priceListService.findPricedProductIds(filter.tenantId, effectiveWarehouseId)
+        : undefined;
+
     const skip = (filter.page - 1) * filter.pageSize;
+    const listFilter = { ...filter, productIds };
     const [items, total] = await Promise.all([
-      productRepository.findManyByTenant(filter.tenantId, { ...filter, skip, take: filter.pageSize }),
-      productRepository.countByTenant(filter.tenantId, filter),
+      productRepository.findManyByTenant(filter.tenantId, { ...listFilter, skip, take: filter.pageSize }),
+      productRepository.countByTenant(filter.tenantId, listFilter),
     ]);
     return {
       items: items.map(toProductView),
