@@ -70,10 +70,11 @@ export default function SettingsPage() {
 
   const onSubmit = async (values: UpdateTenantSettingsInput) => {
     try {
-      await updateMutation.mutateAsync({
+      const payload: UpdateTenantSettingsInput = {
         ...values,
         defaultTaxRateId: values.defaultTaxRateId === UNSET_TAX_RATE ? null : values.defaultTaxRateId,
-      });
+      };
+      await updateMutation.mutateAsync(payload);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
     }
