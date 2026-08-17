@@ -38,7 +38,7 @@ export default function SettingsPage() {
     queryFn: () => apiClient.get<TaxRateView[]>("/tax-rates"),
   });
 
-  const form = useForm({
+  const form = useForm<UpdateTenantSettingsInput>({
     resolver: zodResolver(updateTenantSettingsSchema),
     defaultValues: {},
   });

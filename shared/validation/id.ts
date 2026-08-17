@@ -12,7 +12,7 @@ export const idString = z.preprocess(
 // by coercing them to undefined, avoiding false "must be a numeric id" errors on empty optional fields.
 export const optionalIdString = z.preprocess(
   (val) => {
-    if (val === "" || val === null || val === undefined || val === "__none__") {
+    if (val === "" || val === undefined || val === "__none__") {
       return undefined;
     }
     if (typeof val === "number" || typeof val === "bigint") {
@@ -20,5 +20,5 @@ export const optionalIdString = z.preprocess(
     }
     return val;
   },
-  z.string({ invalid_type_error: "must be a numeric id" }).regex(/^\d+$/, "must be a numeric id").optional(),
+  z.string({ invalid_type_error: "must be a numeric id" }).regex(/^\d+$/, "must be a numeric id").nullable().optional(),
 );
