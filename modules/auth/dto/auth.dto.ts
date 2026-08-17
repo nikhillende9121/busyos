@@ -2,7 +2,6 @@
 // validated request into these before calling the service, so the service
 // never depends on `schema/` or on a Request object (see MODULES.md -> dto/).
 export type LoginDto = {
-  tenantCode: string;
   email: string;
   password: string;
 };

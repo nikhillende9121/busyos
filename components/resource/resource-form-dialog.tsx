@@ -14,18 +14,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { LoaderButton } from "@/components/ui/loader-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MultiSelectPicker } from "@/components/resource/multi-select-picker";
 import { ApiError } from "@/lib/api/client";
 
 // One generic create/edit form, reused by every module — a field config
 // array plus the module's own existing zod schema (imported straight from
 // modules/<name>/schema/*.schema.ts) is all a new resource needs. Client
 // and server validation therefore share one schema, not two.
-export type ResourceFormFieldType = "text" | "number" | "textarea" | "select" | "checkbox";
+export type ResourceFormFieldType = "text" | "number" | "textarea" | "select" | "checkbox" | "multiselect";
 
 export type ResourceFormField = {
   name: string;
@@ -121,6 +123,19 @@ export function ResourceFormDialog<TInput extends FieldValues>({
                     </Select>
                   )}
                 />
+              ) : fieldConfig.type === "multiselect" ? (
+                <Controller
+                  control={form.control}
+                  name={fieldConfig.name as never}
+                  render={({ field }) => (
+                    <MultiSelectPicker
+                      options={fieldConfig.options ?? []}
+                      value={field.value ?? []}
+                      onChange={field.onChange}
+                      placeholder={fieldConfig.placeholder ?? "Select…"}
+                    />
+                  )}
+                />
               ) : fieldConfig.type === "checkbox" ? (
                 <Controller
                   control={form.control}
@@ -171,9 +186,9 @@ export function ResourceFormDialog<TInput extends FieldValues>({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={form.formState.isSubmitting}>
-              {form.formState.isSubmitting ? "Saving…" : submitLabel}
-            </Button>
+            <LoaderButton type="submit" loading={form.formState.isSubmitting}>
+              {submitLabel}
+            </LoaderButton>
           </DialogFooter>
         </form>
       </DialogContent>

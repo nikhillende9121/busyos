@@ -17,6 +17,7 @@ export type CreateSaleDto = {
   // Applying at Creation vs. Confirmation for the tradeoff this accepts
   // (an abandoned DRAFT sale can consume a limited coupon's usage slot).
   couponCode?: string;
+  taxInclusive?: boolean;
   // Zero or more ExtraCharge catalog entries to attach — see
   // modules/pricing/service/tax.service.ts.
   extraChargeIds?: bigint[];

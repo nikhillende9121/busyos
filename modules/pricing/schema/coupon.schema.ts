@@ -1,32 +1,34 @@
 import { z } from "zod";
-import { idString } from "@/shared/validation/id";
-import { nonNegativeDecimalString } from "@/shared/validation/decimal";
+import { idString, optionalIdString } from "@/shared/validation/id";
+import { nonNegativeDecimalString, optionalNonNegativeDecimalString } from "@/shared/validation/decimal";
 
-export const createCouponSchema = z
-  .object({
-    code: z.string().min(1).max(50),
-    type: z.enum(["PERCENTAGE", "FLAT", "FREE_SHIPPING"]),
-    value: nonNegativeDecimalString,
-    scope: z.enum(["ORDER", "PRODUCT", "CATEGORY"]),
-    warehouseId: idString.optional(),
-    customerGroupId: idString.optional(),
-    customerId: idString.optional(),
-    productIds: z.array(idString).optional(),
-    categoryIds: z.array(idString).optional(),
-    minPurchaseAmount: nonNegativeDecimalString.optional(),
-    maxDiscountAmount: nonNegativeDecimalString.optional(),
-    usageLimitTotal: z.number().int().positive().optional(),
-    usageLimitPerCustomer: z.number().int().positive().optional(),
-    startDate: z.coerce.date(),
-    endDate: z.coerce.date().optional(),
-    stackable: z.boolean().optional(),
-  })
-  .refine((data) => data.scope !== "PRODUCT" || (data.productIds && data.productIds.length > 0), {
-    message: "productIds is required when scope is PRODUCT",
-    path: ["productIds"],
-  })
-  .refine((data) => data.scope !== "CATEGORY" || (data.categoryIds && data.categoryIds.length > 0), {
-    message: "categoryIds is required when scope is CATEGORY",
-    path: ["categoryIds"],
-  });
+const optionalPositiveInt = z.preprocess(
+  (val) => (val === "" || val === null || val === undefined ? undefined : Number(val)),
+  z.number({ invalid_type_error: "Must be a valid number" }).int("Must be a whole number").positive("Must be greater than 0").optional(),
+);
+
+const optionalDate = z.preprocess(
+  (val) => (val === "" || val === null || val === undefined ? undefined : val),
+  z.coerce.date({ invalid_type_error: "Invalid date" }).optional(),
+);
+
+export const createCouponSchema = z.object({
+  code: z.string().min(1, "Code is required").max(50, "Code is too long"),
+  type: z.enum(["PERCENTAGE", "FLAT", "FREE_SHIPPING"]),
+  value: nonNegativeDecimalString,
+  scope: z.enum(["ORDER", "PRODUCT", "CATEGORY"]).optional().default("ORDER"),
+  warehouseId: optionalIdString,
+  customerGroupId: optionalIdString,
+  customerId: optionalIdString,
+  productIds: z.array(idString).optional(),
+  categoryIds: z.array(idString).optional(),
+  minPurchaseAmount: optionalNonNegativeDecimalString,
+  maxDiscountAmount: optionalNonNegativeDecimalString,
+  usageLimitTotal: optionalPositiveInt,
+  usageLimitPerCustomer: optionalPositiveInt,
+  startDate: z.coerce.date({ invalid_type_error: "Start date is required" }),
+  endDate: optionalDate,
+  stackable: z.boolean().optional(),
+});
+
 export type CreateCouponInput = z.infer<typeof createCouponSchema>;

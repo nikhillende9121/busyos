@@ -12,4 +12,6 @@ export type QuoteInput = {
   customerGroupId?: bigint;
   lines: QuoteLineInput[];
   couponCode?: string;
+  extraChargeIds?: bigint[];
+  channel?: string;
 };

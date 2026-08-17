@@ -17,7 +17,7 @@ import type { SaleView } from "../types/sale.types";
 // payment-pending state a card/online checkout needs, and finish through
 // complete() rather than the online fulfillment pipeline below.
 function initialStatus(channel: SaleChannel): SaleStatus {
-  return channel === "POS" ? "DRAFT" : "PENDING_PAYMENT";
+  return channel === "POS" ? "COMPLETED" : "PENDING_PAYMENT";
 }
 
 // Online/marketplace/phone fulfillment: CONFIRMED -> PROCESSING -> PACKED
@@ -34,15 +34,16 @@ const NEXT_FULFILLMENT_STATUS: Partial<Record<SaleStatus, SaleStatus>> = {
 
 // Cancellable any time before SHIPPED — matches Docs/business-rules/sales.md
 // -> Cancellation ("only before SHIPPED" for online channels). Once stock
-// has left (CONFIRMED and later, until SHIPPED), cancelling must reverse it.
+// has left (CONFIRMED/COMPLETED and later, until SHIPPED), cancelling must reverse it.
 const CANCELLABLE_STATUSES = new Set<SaleStatus>([
   "DRAFT",
   "PENDING_PAYMENT",
   "CONFIRMED",
   "PROCESSING",
   "PACKED",
+  "COMPLETED",
 ]);
-const STOCK_DECREMENTED_STATUSES = new Set<SaleStatus>(["CONFIRMED", "PROCESSING", "PACKED"]);
+const STOCK_DECREMENTED_STATUSES = new Set<SaleStatus>(["CONFIRMED", "PROCESSING", "PACKED", "COMPLETED"]);
 
 export const saleService = {
   async list(filter: SaleListDto): Promise<SaleView[]> {
@@ -130,6 +131,7 @@ export const saleService = {
       tenantId: dto.tenantId,
       warehouseId: dto.warehouseId,
       customerId: dto.customerId,
+      taxInclusivePricing: dto.taxInclusive,
     });
     const lineTaxResults = await taxService.computeLinesTax(
       dto.tenantId,
@@ -137,15 +139,16 @@ export const saleService = {
       quote.lines.map((line) => ({ productId: BigInt(line.productId), lineTotal: line.lineTotal })),
     );
 
-    const resolvedCharges = await resolveSaleCharges(dto.tenantId, taxContext, dto.extraChargeIds, quote.grandTotal);
+    const resolvedCharges = await resolveSaleCharges(dto.tenantId, taxContext, dto.extraChargeIds, quote.grandTotal, dto.channel);
 
     const sale = await prisma.$transaction(async (tx) => {
+      const status = initialStatus(dto.channel);
       const created = await saleRepository.create(tx, {
         tenantId: dto.tenantId,
         customerId: dto.customerId,
         warehouseId: dto.warehouseId,
         channel: dto.channel,
-        status: initialStatus(dto.channel),
+        status,
         saleDate: dto.saleDate,
         createdBy: dto.createdBy,
       });
@@ -191,6 +194,23 @@ export const saleService = {
           amount: new Prisma.Decimal(charge.amount),
           taxAmount: new Prisma.Decimal(charge.taxAmount),
         });
+      }
+
+      if (status === "COMPLETED") {
+        for (const item of dto.items) {
+          await inventoryService.recordMovement(
+            {
+              tenantId: dto.tenantId,
+              warehouseId: dto.warehouseId,
+              productId: item.productId,
+              transactionType: "SALE_OUT",
+              quantityDelta: `-${item.quantity}`,
+              referenceType: "SALE",
+              referenceId: created.id,
+            },
+            tx,
+          );
+        }
       }
 
       // Read back as one consistent snapshot (items+taxes, discounts,
@@ -397,6 +417,8 @@ export async function resolveItemPrice(params: {
 // taxable — computed before the transaction opens, same reasoning as the
 // quote/tax-line computation above.
 //
+import { extraChargeRepository } from "@/modules/extra-charge/repository/extra-charge.repository";
+
 // Exported for sale-exchange.service.ts to reuse for its replacement-items
 // leg — an exchange charges extra fees no differently than a normal Sale.
 export async function resolveSaleCharges(
@@ -404,21 +426,49 @@ export async function resolveSaleCharges(
   taxContext: TaxContext,
   extraChargeIds: bigint[] | undefined,
   grandTotal: string,
+  channel?: string,
 ): Promise<
   { extraChargeId: bigint; taxRateId: bigint | null; name: string; amount: string; taxAmount: string }[]
 > {
-  if (!extraChargeIds || extraChargeIds.length === 0) {
+  let targetChargeIds = extraChargeIds ?? [];
+  if (targetChargeIds.length === 0 && channel && extraChargeRepository?.findManyByTenant) {
+    try {
+      const activeCharges = (await extraChargeRepository.findManyByTenant(tenantId)) || [];
+      targetChargeIds = activeCharges
+        .filter((c) => {
+          if (!c.isActive) return false;
+          if (!c.applicableChannels) return true;
+          const allowed = c.applicableChannels.split(",").map((s) => s.trim()).filter(Boolean);
+          return allowed.length === 0 || allowed.includes(channel);
+        })
+        .map((c) => c.id);
+    } catch {
+      targetChargeIds = [];
+    }
+  }
+
+  if (targetChargeIds.length === 0) {
     return [];
   }
 
   const resolved = [];
-  for (const extraChargeId of extraChargeIds) {
+  for (const extraChargeId of targetChargeIds) {
     const charge = await saleRepository.findExtraChargeForTenant(tenantId, extraChargeId);
     if (!charge) {
       throw new AppError(
         "VALIDATION_ERROR",
         `extraChargeId ${extraChargeId.toString()} does not belong to this tenant`,
       );
+    }
+
+    if (channel && charge.applicableChannels) {
+      const allowedChannels = charge.applicableChannels.split(",").map((c) => c.trim()).filter(Boolean);
+      if (allowedChannels.length > 0 && !allowedChannels.includes(channel)) {
+        throw new AppError(
+          "VALIDATION_ERROR",
+          `Extra charge "${charge.name}" is not applicable for ${channel} sales channel`,
+        );
+      }
     }
 
     const amount =
@@ -453,6 +503,7 @@ export function toSaleView(
     discounts: SaleDiscount[];
     charges: SaleCharge[];
   },
+  taxInclusive: boolean = true,
 ): SaleView {
   return {
     id: sale.id.toString(),
@@ -461,6 +512,7 @@ export function toSaleView(
     channel: sale.channel,
     status: sale.status,
     saleDate: sale.saleDate.toISOString(),
+    taxInclusive,
     items: sale.items.map((item) => ({
       id: item.id.toString(),
       productId: item.productId.toString(),

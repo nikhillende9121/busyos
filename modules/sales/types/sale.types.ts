@@ -41,6 +41,7 @@ export type SaleView = {
   channel: string;
   status: string;
   saleDate: string;
+  taxInclusive?: boolean;
   items: SaleItemView[];
   discounts: SaleDiscountView[];
   charges: SaleChargeView[];

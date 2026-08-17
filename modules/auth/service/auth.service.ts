@@ -12,17 +12,16 @@ import type { MeView, TokenPair } from "../types/auth.types";
 // Same message for "no such tenant", "no such user", and "wrong password" —
 // never let a login failure reveal which of the three actually failed, or
 // the endpoint becomes a tenant/email enumeration oracle.
-const INVALID_CREDENTIALS_MESSAGE = "Invalid tenant, email, or password";
+const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password";
 
 export const authService = {
   async login(input: LoginDto): Promise<TokenPair> {
-    const tenant = await authRepository.findTenantByCode(input.tenantCode);
-    if (!tenant || !ACTIVE_TENANT_STATUSES.has(tenant.status)) {
+    const user = await authRepository.findActiveUserByEmail(input.email);
+    if (!user || user.status !== "ACTIVE") {
       throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
     }
 
-    const user = await authRepository.findActiveUserByEmail(tenant.id, input.email);
-    if (!user || user.status !== "ACTIVE") {
+    if (!user.tenant || !ACTIVE_TENANT_STATUSES.has(user.tenant.status)) {
       throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
     }
 
@@ -31,9 +30,7 @@ export const authService = {
       throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
     }
 
-    // TODO: audit log successful login (see AI_AGENT.md -> Logging) once
-    // shared/logger exists.
-    return issueTokenPair(user.id, tenant.id, user.roleId);
+    return issueTokenPair(user.id, user.tenantId, user.roleId);
   },
 
   async refresh(input: RefreshDto): Promise<TokenPair> {
@@ -72,14 +69,30 @@ export const authService = {
       rbacLookup.listEnabledFeatureCodesForTenant(auth.tenantId),
     ]);
 
+    const logoUrl = user.tenant.logoPublicId
+      ? cloudinaryImageUrl(user.tenant.logoPublicId, CLOUDINARY_TRANSFORM.logo)
+      : null;
+
     return {
       id: user.id.toString(),
       name: user.name,
       email: user.email,
       tenantId: user.tenantId.toString(),
-      tenantLogoUrl: user.tenant.logoPublicId
-        ? cloudinaryImageUrl(user.tenant.logoPublicId, CLOUDINARY_TRANSFORM.logo)
-        : null,
+      tenantLogoUrl: logoUrl,
+      tenant: {
+        id: user.tenant.id.toString(),
+        name: user.tenant.name,
+        code: user.tenant.code,
+        status: user.tenant.status,
+        logoUrl,
+        companyName: user.tenant.settings?.companyName ?? null,
+        gstNumber: user.tenant.settings?.gstNumber ?? null,
+        currency: user.tenant.settings?.currency ?? "INR",
+        timezone: user.tenant.settings?.timezone ?? "Asia/Kolkata",
+        invoicePrefix: user.tenant.settings?.invoicePrefix ?? null,
+        homeState: user.tenant.settings?.homeState ?? null,
+        taxInclusivePricing: user.tenant.settings?.taxInclusivePricing ?? false,
+      },
       warehouseId: user.warehouseId?.toString() ?? null,
       warehouseName: user.warehouse?.name ?? null,
       role: { id: user.role.id.toString(), name: user.role.name },

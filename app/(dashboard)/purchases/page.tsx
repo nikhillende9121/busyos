@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoaderButton } from "@/components/ui/loader-button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,8 +48,8 @@ export default function PurchasesPage() {
     queryFn: () => apiClient.get<WarehouseView[]>("/warehouses"),
   });
   const { data: products } = useQuery({
-    queryKey: queryKeys.list("products", { pageSize: 100 }),
-    queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),
+    queryKey: queryKeys.list("products", { pageSize: 200 }),
+    queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 200 }),
   });
   const { data: extraCharges } = useQuery({
     queryKey: queryKeys.list("extra-charges"),
@@ -106,10 +107,24 @@ export default function PurchasesPage() {
 
   const onSubmit = async (values: FieldValues) => {
     try {
-      await createMutation.mutateAsync(values);
+      const payload = {
+        ...values,
+        extraChargeIds: values.extraChargeIds?.length ? values.extraChargeIds : undefined,
+        items: (values.items ?? []).map((item: Record<string, string>) => ({
+          productId: item.productId,
+          quantity: String(item.quantity ?? ""),
+          price: String(item.price ?? ""),
+        })),
+      };
+      await createMutation.mutateAsync(payload);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
     }
+  };
+
+  const onInvalid = (errors: FieldValues) => {
+    console.error("Purchase creation form validation errors:", errors);
+    toast.error("Please fill in all required fields (supplier, warehouse, line items with product, quantity > 0 & price).");
   };
 
   return (
@@ -139,7 +154,7 @@ export default function PurchasesPage() {
           <DialogHeader>
             <DialogTitle>New purchase</DialogTitle>
           </DialogHeader>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Supplier</Label>
@@ -161,6 +176,9 @@ export default function PurchasesPage() {
                     </Select>
                   )}
                 />
+                {form.formState.errors.supplierId && (
+                  <p className="text-xs text-destructive">Supplier is required</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>Warehouse</Label>
@@ -182,12 +200,18 @@ export default function PurchasesPage() {
                     </Select>
                   )}
                 />
+                {form.formState.errors.warehouseId && (
+                  <p className="text-xs text-destructive">Warehouse is required</p>
+                )}
               </div>
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="purchaseDate">Purchase date</Label>
               <Input id="purchaseDate" type="date" {...form.register("purchaseDate")} />
+              {form.formState.errors.purchaseDate && (
+                <p className="text-xs text-destructive">Purchase date is required</p>
+              )}
             </div>
 
             <LineItemsField
@@ -200,6 +224,11 @@ export default function PurchasesPage() {
               ]}
               emptyItem={{ productId: "", quantity: "", price: "" }}
             />
+            {form.formState.errors.items && (
+              <p className="text-xs text-destructive">
+                {String(form.formState.errors.items.message ?? "At least one valid line item with product, quantity & price is required")}
+              </p>
+            )}
 
             {(extraCharges ?? []).length > 0 && (
               <div className="space-y-1.5">
@@ -237,9 +266,9 @@ export default function PurchasesPage() {
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? "Creating…" : "Create purchase"}
-              </Button>
+              <LoaderButton type="submit" loading={form.formState.isSubmitting}>
+                Create purchase
+              </LoaderButton>
             </DialogFooter>
           </form>
         </DialogContent>

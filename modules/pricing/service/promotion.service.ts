@@ -4,8 +4,9 @@ import type { Db } from "@/shared/database/transaction-client";
 import { discountRepository } from "../repository/discount.repository";
 import { couponRepository } from "../repository/coupon.repository";
 import { AppError } from "@/shared/errors/app-error";
+import { resolveSaleCharges } from "@/modules/sales/service/sale.service";
 import type { QuoteInput } from "../dto/promotion.dto";
-import type { QuoteView, QuoteLineView, QuoteCouponView, QuoteLineDiscountView } from "../types/promotion.types";
+import type { QuoteView, QuoteLineView, QuoteCouponView, QuoteLineDiscountView, QuoteChargeView } from "../types/promotion.types";
 
 type CouponWithLinks = Coupon & { products: CouponProduct[]; categories: CouponCategory[] };
 
@@ -93,10 +94,10 @@ export const promotionService = {
       // Coupon Scope. An ORDER-scope coupon is handled once, below, after
       // this loop, never here.
       if (coupon && coupon.scope !== "ORDER") {
-        const matchesLine =
-          coupon.scope === "PRODUCT"
-            ? coupon.products.some((p) => p.productId === line.productId)
-            : line.categoryId !== undefined && coupon.categories.some((c) => c.categoryId === line.categoryId);
+        const matchesProduct = coupon.products.some((p) => p.productId === line.productId);
+        const matchesCategory =
+          line.categoryId !== undefined && coupon.categories.some((c) => c.categoryId === line.categoryId);
+        const matchesLine = matchesProduct || matchesCategory;
         if (matchesLine) {
           const amount = computePromoAmount(coupon.type, coupon.value, coupon.maxDiscountAmount, runningAmount);
           runningAmount = runningAmount.sub(amount);
@@ -138,11 +139,49 @@ export const promotionService = {
       }
     }
 
+    const chargeViews: QuoteChargeView[] = [];
+    let chargesTotal = new Prisma.Decimal(0);
+    let chargesTaxTotal = new Prisma.Decimal(0);
+
+    if (input.extraChargeIds?.length || input.channel) {
+      const taxContext = {
+        tenantId: input.tenantId,
+        stateCode: "",
+        companyStateCode: "",
+        taxInclusivePricing: true,
+      };
+
+      const charges = await resolveSaleCharges(
+        input.tenantId,
+        taxContext,
+        input.extraChargeIds,
+        grandTotal.toString(),
+        input.channel,
+      );
+
+      for (const charge of charges) {
+        const amt = new Prisma.Decimal(charge.amount);
+        const taxAmt = new Prisma.Decimal(charge.taxAmount);
+        chargesTotal = chargesTotal.add(amt);
+        chargesTaxTotal = chargesTaxTotal.add(taxAmt);
+        chargeViews.push({
+          extraChargeId: charge.extraChargeId.toString(),
+          name: charge.name,
+          amount: charge.amount,
+          taxAmount: charge.taxAmount,
+        });
+      }
+      grandTotal = grandTotal.add(chargesTotal).add(chargesTaxTotal);
+    }
+
     return {
       lines: lineViews,
       subtotal: subtotal.toString(),
       lineDiscountTotal: lineReductionTotal.toString(),
       coupon: couponView,
+      charges: chargeViews,
+      chargesTotal: chargesTotal.toString(),
+      chargesTaxTotal: chargesTaxTotal.toString(),
       grandTotal: grandTotal.toString(),
     };
   },

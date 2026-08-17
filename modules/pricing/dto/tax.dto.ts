@@ -2,6 +2,7 @@ export type TaxContextInput = {
   tenantId: bigint;
   warehouseId: bigint;
   customerId: bigint;
+  taxInclusivePricing?: boolean;
 };
 
 // Purchases reverse the seller/buyer roles from a sale: the Supplier is the
@@ -12,6 +13,7 @@ export type PurchaseTaxContextInput = {
   tenantId: bigint;
   warehouseId: bigint;
   supplierId: bigint;
+  taxInclusivePricing?: boolean;
 };
 
 export type TaxLineInput = {

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ResourceCrudPage } from "@/components/resource/resource-crud-page";
 import type { DataTableColumn } from "@/components/resource/data-table";
+import { Badge } from "@/components/ui/badge";
 import {
   createExtraChargeSchema,
   updateExtraChargeSchema,
@@ -11,6 +12,13 @@ import type { ExtraChargeView } from "@/modules/extra-charge/types/extra-charge.
 import type { TaxRateView } from "@/modules/tax-rate/types/tax-rate.types";
 import { apiClient } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
+
+const CHANNEL_OPTIONS = [
+  { label: "POS", value: "POS" },
+  { label: "Online", value: "ONLINE" },
+  { label: "Marketplace", value: "MARKETPLACE" },
+  { label: "Phone", value: "PHONE" },
+];
 
 const columns: DataTableColumn<ExtraChargeView>[] = [
   { key: "name", header: "Name" },
@@ -23,6 +31,22 @@ const columns: DataTableColumn<ExtraChargeView>[] = [
     key: "value",
     header: "Value",
     render: (row) => (row.calcType === "FLAT" ? row.value : `${row.value}%`),
+  },
+  {
+    key: "applicableChannels",
+    header: "Channels",
+    render: (row) =>
+      row.applicableChannels && row.applicableChannels.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {row.applicableChannels.map((ch) => (
+            <Badge key={ch} variant="outline" className="text-xs">
+              {ch}
+            </Badge>
+          ))}
+        </div>
+      ) : (
+        <span className="text-xs text-muted-foreground">All channels</span>
+      ),
   },
   { key: "isTaxable", header: "Taxable", render: (row) => (row.isTaxable ? "Yes" : "No") },
 ];
@@ -55,14 +79,22 @@ export default function ExtraChargesPage() {
           ],
         },
         { name: "value", label: "Value", placeholder: "50", description: "A flat amount, or a percentage number (e.g. 2 for 2%)." },
+        {
+          name: "applicableChannels",
+          label: "Applicable sales channels (optional)",
+          type: "multiselect",
+          options: CHANNEL_OPTIONS,
+          description: "Leave empty to make applicable to all channels.",
+        },
         { name: "isTaxable", label: "Taxable", type: "checkbox" },
         { name: "taxRateId", label: "Tax rate (if taxable)", type: "select", options: taxRateOptions },
       ]}
-      createDefaultValues={{ name: "", calcType: "FLAT", value: "", isTaxable: false, taxRateId: undefined }}
+      createDefaultValues={{ name: "", calcType: "FLAT", value: "", applicableChannels: [], isTaxable: false, taxRateId: undefined }}
       getEditDefaultValues={(row: ExtraChargeView) => ({
         name: row.name,
         calcType: row.calcType,
         value: row.value,
+        applicableChannels: row.applicableChannels ?? [],
         isTaxable: row.isTaxable,
         taxRateId: row.taxRateId ?? undefined,
       })}

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoaderButton } from "@/components/ui/loader-button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -233,45 +234,55 @@ export default function SalesPage() {
               Price is resolved automatically from this store&apos;s price-list configuration.
             </p>
 
-            {(extraCharges ?? []).length > 0 && (
-              <div className="space-y-1.5">
-                <Label>Extra charges</Label>
-                <Controller
-                  control={form.control}
-                  name="extraChargeIds"
-                  render={({ field }) => (
-                    <div className="grid grid-cols-2 gap-1.5 rounded-md border p-3">
-                      {(extraCharges ?? []).map((charge) => {
-                        const selected: string[] = field.value ?? [];
-                        return (
-                          <label key={charge.id} className="flex items-center gap-2 text-sm">
-                            <Checkbox
-                              checked={selected.includes(charge.id)}
-                              onCheckedChange={(checked) => {
-                                field.onChange(
-                                  checked
-                                    ? [...selected, charge.id]
-                                    : selected.filter((id) => id !== charge.id),
-                                );
-                              }}
-                            />
-                            {charge.name} ({charge.calcType === "FLAT" ? charge.value : `${charge.value}%`})
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
-                />
-              </div>
-            )}
+            {(() => {
+              const watchedChannel = form.watch("channel") ?? "POS";
+              const applicableExtraCharges = (extraCharges ?? []).filter(
+                (charge) =>
+                  !charge.applicableChannels ||
+                  charge.applicableChannels.length === 0 ||
+                  charge.applicableChannels.includes(watchedChannel),
+              );
+              if (applicableExtraCharges.length === 0) return null;
+              return (
+                <div className="space-y-1.5">
+                  <Label>Extra charges</Label>
+                  <Controller
+                    control={form.control}
+                    name="extraChargeIds"
+                    render={({ field }) => (
+                      <div className="grid grid-cols-2 gap-1.5 rounded-md border p-3">
+                        {applicableExtraCharges.map((charge) => {
+                          const selected: string[] = field.value ?? [];
+                          return (
+                            <label key={charge.id} className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={selected.includes(charge.id)}
+                                onCheckedChange={(checked) => {
+                                  field.onChange(
+                                    checked
+                                      ? [...selected, charge.id]
+                                      : selected.filter((id) => id !== charge.id),
+                                  );
+                                }}
+                              />
+                              {charge.name} ({charge.calcType === "FLAT" ? charge.value : `${charge.value}%`})
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  />
+                </div>
+              );
+            })()}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? "Creating…" : "Create sale"}
-              </Button>
+              <LoaderButton type="submit" loading={form.formState.isSubmitting}>
+                Create sale
+              </LoaderButton>
             </DialogFooter>
           </form>
         </DialogContent>

@@ -768,6 +768,11 @@ model ExtraCharge {
   isTaxable Boolean             @default(false)
   taxRateId BigInt?
   isActive  Boolean             @default(true)
+  // null = applicable to all channels. Comma-separated SaleChannel values
+  // (e.g. "ONLINE,MARKETPLACE") when scoped — see
+  // Docs/business-rules/sales.md. Stored as a flat string rather than a
+  // join table because there are only 4 enum values.
+  applicableChannels String?           @db.VarChar(200)
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
   createdBy BigInt?

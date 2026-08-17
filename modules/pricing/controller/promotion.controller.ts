@@ -16,6 +16,8 @@ export const promotionController = {
         customerId: input.customerId ? BigInt(input.customerId) : undefined,
         customerGroupId: input.customerGroupId ? BigInt(input.customerGroupId) : undefined,
         couponCode: input.couponCode,
+        extraChargeIds: input.extraChargeIds?.map((id) => BigInt(id)),
+        channel: input.channel,
         lines: input.lines.map((line) => ({
           productId: BigInt(line.productId),
           categoryId: line.categoryId ? BigInt(line.categoryId) : undefined,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Loader2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,6 +69,7 @@ export function ConfirmDialog({
             }}
             className={destructive ? "bg-destructive text-white hover:bg-destructive/90" : undefined}
           >
+            {isSubmitting && <Loader2 className="size-4 animate-spin" />}
             {isSubmitting ? "Working…" : confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>

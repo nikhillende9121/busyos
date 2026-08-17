@@ -1,8 +1,7 @@
 import { extraChargeController } from "@/modules/extra-charge/controller/extra-charge.controller";
 import { withApiAuth } from "@/shared/middleware/with-api-auth";
 
-// No `feature` gate — same reasoning as tax-rates: configuration, not a
-// plan-gated add-on.
+// Configuration route for extra charges (shipping/handling/fees).
 export const GET = withApiAuth(extraChargeController.list, {
   permission: "EXTRA_CHARGE.VIEW",
 });

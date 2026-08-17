@@ -37,7 +37,8 @@ export const extraChargeService = {
       calcType: dto.calcType,
       value: new Prisma.Decimal(dto.value),
       isTaxable,
-      taxRateId: isTaxable ? dto.taxRateId : undefined,
+      taxRateId: isTaxable && dto.taxRateId ? dto.taxRateId : null,
+      applicableChannels: dto.applicableChannels?.length ? dto.applicableChannels.join(",") : null,
       createdBy: dto.createdBy,
     });
     return toExtraChargeView(charge);
@@ -70,6 +71,9 @@ export const extraChargeService = {
       isTaxable: dto.isTaxable,
       taxRateId: effectiveIsTaxable ? effectiveTaxRateId : null,
       isActive: dto.isActive,
+      applicableChannels: dto.applicableChannels !== undefined
+        ? (dto.applicableChannels?.length ? dto.applicableChannels.join(",") : null)
+        : undefined,
       updatedBy: dto.updatedBy,
     });
     return toExtraChargeView(charge);
@@ -96,6 +100,9 @@ function toExtraChargeView(charge: ExtraCharge): ExtraChargeView {
     isTaxable: charge.isTaxable,
     taxRateId: charge.taxRateId?.toString() ?? null,
     isActive: charge.isActive,
+    applicableChannels: charge.applicableChannels
+      ? charge.applicableChannels.split(",").filter(Boolean)
+      : null,
     createdAt: charge.createdAt.toISOString(),
     updatedAt: charge.updatedAt.toISOString(),
   };

@@ -5,6 +5,7 @@ export type CreateExtraChargeDto = {
   value: string;
   isTaxable?: boolean;
   taxRateId?: bigint;
+  applicableChannels?: string[];
   createdBy?: bigint;
 };
 
@@ -17,5 +18,6 @@ export type UpdateExtraChargeDto = {
   isTaxable?: boolean;
   taxRateId?: bigint | null;
   isActive?: boolean;
+  applicableChannels?: string[] | null;
   updatedBy?: bigint;
 };

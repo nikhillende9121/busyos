@@ -24,10 +24,20 @@ export type QuoteCouponView = {
   amount: string;
 };
 
+export type QuoteChargeView = {
+  extraChargeId: string;
+  name: string;
+  amount: string;
+  taxAmount: string;
+};
+
 export type QuoteView = {
   lines: QuoteLineView[];
   subtotal: string;
   lineDiscountTotal: string;
   coupon: QuoteCouponView | null;
+  charges: QuoteChargeView[];
+  chargesTotal: string;
+  chargesTaxTotal: string;
   grandTotal: string;
 };

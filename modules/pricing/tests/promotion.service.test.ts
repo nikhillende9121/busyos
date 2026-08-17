@@ -17,6 +17,10 @@ vi.mock("../repository/coupon.repository", () => ({
   },
 }));
 
+vi.mock("@/modules/sales/service/sale.service", () => ({
+  resolveSaleCharges: vi.fn().mockResolvedValue([]),
+}));
+
 import { discountRepository } from "../repository/discount.repository";
 import { couponRepository } from "../repository/coupon.repository";
 import { promotionService } from "../service/promotion.service";

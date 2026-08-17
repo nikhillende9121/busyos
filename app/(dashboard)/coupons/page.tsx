@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoaderButton } from "@/components/ui/loader-button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,21 +15,23 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
+import { MultiSelectPicker } from "@/components/resource/multi-select-picker";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useAuth } from "@/lib/auth/auth-context";
 import { createCouponSchema } from "@/modules/pricing/schema/coupon.schema";
 import type { CouponView } from "@/modules/pricing/types/coupon.types";
+import type { ProductView } from "@/modules/product/types/product.types";
+import type { Paginated } from "@/shared/utils/pagination";
+
+type CategoryOption = { id: string; name: string };
+type CustomerOption = { id: string; name: string };
+type CustomerGroupOption = { id: string; name: string };
 
 const TYPE_OPTIONS = [
   { label: "Percentage", value: "PERCENTAGE" },
   { label: "Flat", value: "FLAT" },
   { label: "Free shipping", value: "FREE_SHIPPING" },
-];
-const SCOPE_OPTIONS = [
-  { label: "Whole order", value: "ORDER" },
-  { label: "Specific products", value: "PRODUCT" },
-  { label: "Specific categories", value: "CATEGORY" },
 ];
 
 const columns: DataTableColumn<CouponView>[] = [
@@ -49,14 +52,37 @@ export default function CouponsPage() {
     queryKey: queryKeys.list("coupons"),
     queryFn: () => apiClient.get<CouponView[]>("/coupons"),
   });
+  const { data: products } = useQuery({
+    queryKey: queryKeys.list("products", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),
+  });
+  const { data: categories } = useQuery({
+    queryKey: queryKeys.list("categories"),
+    queryFn: () => apiClient.get<CategoryOption[]>("/categories"),
+  });
+  const { data: customers } = useQuery({
+    queryKey: queryKeys.list("customers"),
+    queryFn: () => apiClient.get<CustomerOption[]>("/customers"),
+  });
+  const { data: customerGroups } = useQuery({
+    queryKey: queryKeys.list("customer-groups"),
+    queryFn: () => apiClient.get<CustomerGroupOption[]>("/customer-groups"),
+  });
+
+  const productOptions = (products?.items ?? []).map((p) => ({ label: `${p.sku} — ${p.name}`, value: p.id }));
+  const categoryOptions = (categories ?? []).map((c) => ({ label: c.name, value: c.id }));
+  const customerOptions = (customers ?? []).map((c) => ({ label: c.name, value: c.id }));
+  const customerGroupOptions = (customerGroups ?? []).map((g) => ({ label: g.name, value: g.id }));
 
   const defaultFormValues = {
     code: "",
     type: "PERCENTAGE",
     value: "",
     scope: "ORDER",
-    productIds: "",
-    categoryIds: "",
+    productIds: [] as string[],
+    categoryIds: [] as string[],
+    customerId: "",
+    customerGroupId: "",
     minPurchaseAmount: "",
     maxDiscountAmount: "",
     usageLimitTotal: "",
@@ -83,24 +109,33 @@ export default function CouponsPage() {
 
   const onSubmit = async (values: FieldValues) => {
     try {
+      const hasProducts = values.productIds && values.productIds.length > 0;
+      const hasCategories = values.categoryIds && values.categoryIds.length > 0;
+      const autoScope = hasProducts ? "PRODUCT" : hasCategories ? "CATEGORY" : "ORDER";
+
       const payload = {
         ...values,
-        productIds: values.productIds
-          ? String(values.productIds).split(",").map((s: string) => s.trim()).filter(Boolean)
-          : undefined,
-        categoryIds: values.categoryIds
-          ? String(values.categoryIds).split(",").map((s: string) => s.trim()).filter(Boolean)
-          : undefined,
+        scope: autoScope,
+        productIds: hasProducts ? values.productIds : undefined,
+        categoryIds: hasCategories ? values.categoryIds : undefined,
+        customerId: values.customerId || undefined,
+        customerGroupId: values.customerGroupId || undefined,
         minPurchaseAmount: values.minPurchaseAmount || undefined,
         maxDiscountAmount: values.maxDiscountAmount || undefined,
-        usageLimitTotal: values.usageLimitTotal ? Number(values.usageLimitTotal) : undefined,
-        usageLimitPerCustomer: values.usageLimitPerCustomer ? Number(values.usageLimitPerCustomer) : undefined,
+        usageLimitTotal: values.usageLimitTotal !== undefined && values.usageLimitTotal !== "" ? Number(values.usageLimitTotal) : undefined,
+        usageLimitPerCustomer: values.usageLimitPerCustomer !== undefined && values.usageLimitPerCustomer !== "" ? Number(values.usageLimitPerCustomer) : undefined,
         endDate: values.endDate || undefined,
       };
       await createMutation.mutateAsync(payload);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
     }
+  };
+
+  const onInvalid = (errors: FieldValues) => {
+    const firstError = Object.values(errors)[0];
+    const message = firstError?.message ? String(firstError.message) : "Please fix form errors before submitting.";
+    toast.error(message);
   };
 
   return (
@@ -120,14 +155,17 @@ export default function CouponsPage() {
       <DataTable columns={columns} rows={coupons ?? []} isLoading={isLoading} getRowId={(row) => row.id} emptyMessage="No coupons yet." />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>New coupon</DialogTitle>
           </DialogHeader>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="code">Code</Label>
               <Input id="code" placeholder="WELCOME20" {...form.register("code")} />
+              {form.formState.errors.code && (
+                <p className="text-xs text-destructive">{String(form.formState.errors.code.message)}</p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -151,52 +189,124 @@ export default function CouponsPage() {
                     </Select>
                   )}
                 />
+                {form.formState.errors.type && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.type.message)}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="value">Value</Label>
                 <Input id="value" placeholder="20" {...form.register("value")} />
+                {form.formState.errors.value && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.value.message)}</p>
+                )}
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <Label>Scope</Label>
+              <Label>Products (optional — select multiple)</Label>
               <Controller
                 control={form.control}
-                name="scope"
+                name="productIds"
                 render={({ field }) => (
-                  <Select value={field.value ?? "ORDER"} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SCOPE_OPTIONS.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>
-                          {o.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <MultiSelectPicker
+                    options={productOptions}
+                    value={field.value ?? []}
+                    onChange={field.onChange}
+                    placeholder="Select products (multiple supported)…"
+                  />
                 )}
               />
+              {form.formState.errors.productIds && (
+                <p className="text-xs text-destructive">{String(form.formState.errors.productIds.message)}</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="productIds">Product IDs (comma-separated)</Label>
-              <Input id="productIds" placeholder="required if scope is Specific products" {...form.register("productIds")} />
+              <Label>Categories (optional — select multiple)</Label>
+              <Controller
+                control={form.control}
+                name="categoryIds"
+                render={({ field }) => (
+                  <MultiSelectPicker
+                    options={categoryOptions}
+                    value={field.value ?? []}
+                    onChange={field.onChange}
+                    placeholder="Select categories (multiple supported)…"
+                  />
+                )}
+              />
+              {form.formState.errors.categoryIds && (
+                <p className="text-xs text-destructive">{String(form.formState.errors.categoryIds.message)}</p>
+              )}
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="categoryIds">Category IDs (comma-separated)</Label>
-              <Input id="categoryIds" placeholder="required if scope is Specific categories" {...form.register("categoryIds")} />
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Customer (optional)</Label>
+                <Controller
+                  control={form.control}
+                  name="customerId"
+                  render={({ field }) => (
+                    <Select value={field.value ?? ""} onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Any customer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Any customer</SelectItem>
+                        {customerOptions.map((c) => (
+                          <SelectItem key={c.value} value={c.value}>
+                            {c.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {form.formState.errors.customerId && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.customerId.message)}</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Customer group (optional)</Label>
+                <Controller
+                  control={form.control}
+                  name="customerGroupId"
+                  render={({ field }) => (
+                    <Select value={field.value ?? ""} onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Any group" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Any group</SelectItem>
+                        {customerGroupOptions.map((g) => (
+                          <SelectItem key={g.value} value={g.value}>
+                            {g.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {form.formState.errors.customerGroupId && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.customerGroupId.message)}</p>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="minPurchaseAmount">Min purchase amount</Label>
                 <Input id="minPurchaseAmount" placeholder="optional" {...form.register("minPurchaseAmount")} />
+                {form.formState.errors.minPurchaseAmount && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.minPurchaseAmount.message)}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="maxDiscountAmount">Max discount amount</Label>
                 <Input id="maxDiscountAmount" placeholder="optional" {...form.register("maxDiscountAmount")} />
+                {form.formState.errors.maxDiscountAmount && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.maxDiscountAmount.message)}</p>
+                )}
               </div>
             </div>
 
@@ -204,10 +314,16 @@ export default function CouponsPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="usageLimitTotal">Total usage limit</Label>
                 <Input id="usageLimitTotal" type="number" placeholder="unlimited" {...form.register("usageLimitTotal")} />
+                {form.formState.errors.usageLimitTotal && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.usageLimitTotal.message)}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="usageLimitPerCustomer">Per-customer limit</Label>
                 <Input id="usageLimitPerCustomer" type="number" placeholder="unlimited" {...form.register("usageLimitPerCustomer")} />
+                {form.formState.errors.usageLimitPerCustomer && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.usageLimitPerCustomer.message)}</p>
+                )}
               </div>
             </div>
 
@@ -215,10 +331,16 @@ export default function CouponsPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="startDate">Start date</Label>
                 <Input id="startDate" type="date" {...form.register("startDate")} />
+                {form.formState.errors.startDate && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.startDate.message)}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="endDate">End date</Label>
                 <Input id="endDate" type="date" placeholder="optional" {...form.register("endDate")} />
+                {form.formState.errors.endDate && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.endDate.message)}</p>
+                )}
               </div>
             </div>
 
@@ -239,9 +361,9 @@ export default function CouponsPage() {
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? "Creating…" : "Create coupon"}
-              </Button>
+              <LoaderButton type="submit" loading={form.formState.isSubmitting}>
+                Create coupon
+              </LoaderButton>
             </DialogFooter>
           </form>
         </DialogContent>

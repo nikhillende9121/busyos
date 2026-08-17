@@ -257,17 +257,22 @@ export default function SaleDetailPage() {
 function SaleTotals({ sale }: { sale: SaleView }) {
   const subtotal = sale.items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
   const discountTotal = sale.discounts.reduce((sum, discount) => sum + Number(discount.amount), 0);
-  const taxableValue = subtotal - discountTotal;
   const taxTotal = sale.items.reduce((sum, item) => sum + Number(item.tax), 0);
   const chargesTotal = sale.charges.reduce((sum, charge) => sum + Number(charge.amount), 0);
   const chargesTaxTotal = sale.charges.reduce((sum, charge) => sum + Number(charge.taxAmount), 0);
-  const grandTotal = taxableValue + taxTotal + chargesTotal + chargesTaxTotal;
+
+  const isInclusive = sale.taxInclusive !== false;
+  const netSubtotal = subtotal - discountTotal;
+  const taxableValue = isInclusive ? netSubtotal - taxTotal : netSubtotal;
+  const grandTotal = isInclusive
+    ? netSubtotal + chargesTotal + chargesTaxTotal
+    : netSubtotal + taxTotal + chargesTotal + chargesTaxTotal;
 
   const rows: [string, number][] = [
     ["Subtotal", subtotal],
     ...(discountTotal > 0 ? ([["Discount", -discountTotal]] as [string, number][]) : []),
-    ["Taxable value", taxableValue],
-    ["Tax", taxTotal],
+    ["Taxable value (excl. tax)", taxableValue],
+    [isInclusive ? "Tax (included)" : "Tax", taxTotal],
     ...(chargesTotal > 0
       ? ([
           ["Charges", chargesTotal],

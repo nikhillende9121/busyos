@@ -22,7 +22,7 @@ export const taxService = {
 
     return {
       isIntraState: resolveIsIntraState(warehouse?.state ?? null, settings?.homeState ?? null, customer?.state ?? null),
-      taxInclusivePricing: settings?.taxInclusivePricing ?? false,
+      taxInclusivePricing: input.taxInclusivePricing ?? settings?.taxInclusivePricing ?? false,
       defaultTaxRateId: settings?.defaultTaxRateId ?? null,
     };
   },
@@ -39,7 +39,7 @@ export const taxService = {
 
     return {
       isIntraState: resolveIsIntraState(warehouse?.state ?? null, settings?.homeState ?? null, supplier?.state ?? null),
-      taxInclusivePricing: settings?.taxInclusivePricing ?? false,
+      taxInclusivePricing: input.taxInclusivePricing ?? settings?.taxInclusivePricing ?? false,
       defaultTaxRateId: settings?.defaultTaxRateId ?? null,
     };
   },

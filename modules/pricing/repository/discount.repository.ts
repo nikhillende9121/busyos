@@ -77,10 +77,10 @@ export const discountRepository = {
   ) {
     const scopeOr: Prisma.DiscountWhereInput[] = [
       { scope: "ORDER" },
-      { scope: "PRODUCT", products: { some: { productId: params.productId } } },
+      { products: { some: { productId: params.productId } } },
     ];
     if (params.categoryId !== undefined) {
-      scopeOr.push({ scope: "CATEGORY", categories: { some: { categoryId: params.categoryId } } });
+      scopeOr.push({ categories: { some: { categoryId: params.categoryId } } });
     }
 
     return prisma.discount.findMany({

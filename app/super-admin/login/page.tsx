@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter, useSearchParams } from "next/navigation";
 import { superAdminLoginSchema, type SuperAdminLoginInput } from "@/modules/super-admin/schema/auth.schema";
 import { Button } from "@/components/ui/button";
+import { LoaderButton } from "@/components/ui/loader-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,7 +60,7 @@ function SuperAdminLoginForm() {
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="root@platform.test" {...form.register("email")} />
+              <Input id="email" type="email" placeholder="admin@platform.com" {...form.register("email")} />
               {form.formState.errors.email && (
                 <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
               )}
@@ -72,9 +73,9 @@ function SuperAdminLoginForm() {
               )}
             </div>
             {formError && <p className="text-sm text-destructive">{formError}</p>}
-            <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-              {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
-            </Button>
+            <LoaderButton type="submit" className="w-full" loading={form.formState.isSubmitting}>
+              Sign in
+            </LoaderButton>
           </form>
         </CardContent>
       </Card>

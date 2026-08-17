@@ -20,6 +20,7 @@ export const createSaleSchema = z.object({
     )
     .min(1, "at least one item is required"),
   couponCode: z.string().min(1).max(50).optional(),
+  taxInclusive: z.boolean().optional(),
   // Zero or more ExtraCharge catalog entries to attach to this sale (e.g.
   // shipping/packing) — resolved and taxed server-side.
   extraChargeIds: z.array(idString).optional(),

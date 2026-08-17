@@ -1,17 +1,19 @@
 import { z } from "zod";
-import { idString } from "@/shared/validation/id";
+import { idString, optionalIdString } from "@/shared/validation/id";
 import { nonNegativeDecimalString, positiveDecimalString } from "@/shared/validation/decimal";
 
 export const quoteSchema = z.object({
   warehouseId: idString,
-  customerId: idString.optional(),
-  customerGroupId: idString.optional(),
+  customerId: optionalIdString,
+  customerGroupId: optionalIdString,
   couponCode: z.string().min(1).max(50).optional(),
+  extraChargeIds: z.array(idString).optional(),
+  channel: z.enum(["POS", "ONLINE", "MARKETPLACE", "PHONE"]).optional(),
   lines: z
     .array(
       z.object({
         productId: idString,
-        categoryId: idString.optional(),
+        categoryId: optionalIdString,
         quantity: positiveDecimalString,
         unitPrice: nonNegativeDecimalString,
       }),

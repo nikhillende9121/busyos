@@ -200,8 +200,12 @@ describe("saleService — warehouse scoping", () => {
   });
 
   it("allows a lifecycle action at the caller's own scoped warehouse", async () => {
-    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(saleRow({ status: "DRAFT" }) as never);
-    vi.mocked(saleRepository.updateStatus).mockResolvedValue(saleRow({ status: "CONFIRMED" }) as never);
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "PENDING_PAYMENT" }) as never,
+    );
+    vi.mocked(saleRepository.updateStatus).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "CONFIRMED" }) as never,
+    );
 
     await expect(saleService.confirm(1n, 800n, 10n)).resolves.toMatchObject({ status: "CONFIRMED" });
   });
@@ -228,9 +232,9 @@ describe("saleService.create", () => {
     vi.mocked(saleRepository.findByIdTx).mockResolvedValue(saleRow() as never);
   });
 
-  it("starts a POS sale in DRAFT", async () => {
-    vi.mocked(saleRepository.create).mockResolvedValue(saleRow({ status: "DRAFT" }) as never);
-    vi.mocked(saleRepository.findByIdTx).mockResolvedValue(saleRow({ status: "DRAFT" }) as never);
+  it("starts a POS sale in COMPLETED and records stock movement", async () => {
+    vi.mocked(saleRepository.create).mockResolvedValue(saleRow({ status: "COMPLETED" }) as never);
+    vi.mocked(saleRepository.findByIdTx).mockResolvedValue(saleRow({ status: "COMPLETED" }) as never);
 
     const sale = await saleService.create({
       tenantId: 1n,
@@ -241,10 +245,10 @@ describe("saleService.create", () => {
       items: [{ productId: 100n, quantity: "2" }],
     });
 
-    expect(sale.status).toBe("DRAFT");
+    expect(sale.status).toBe("COMPLETED");
     expect(saleRepository.create).toHaveBeenCalledWith(
       "sale-tx",
-      expect.objectContaining({ status: "DRAFT", channel: "POS" }),
+      expect.objectContaining({ status: "COMPLETED", channel: "POS" }),
     );
   });
 
@@ -510,9 +514,13 @@ describe("saleService.confirm", () => {
     vi.resetAllMocks();
   });
 
-  it("decrements stock per item and moves a DRAFT POS sale to CONFIRMED", async () => {
-    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(saleRow({ status: "DRAFT" }) as never);
-    vi.mocked(saleRepository.updateStatus).mockResolvedValue(saleRow({ status: "CONFIRMED" }) as never);
+  it("decrements stock per item and moves a PENDING_PAYMENT ONLINE sale to CONFIRMED", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "PENDING_PAYMENT" }) as never,
+    );
+    vi.mocked(saleRepository.updateStatus).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "CONFIRMED" }) as never,
+    );
 
     const sale = await saleService.confirm(1n, 800n);
 
@@ -540,7 +548,9 @@ describe("saleService.confirm", () => {
   });
 
   it("propagates an insufficient-stock rejection from the inventory module without confirming", async () => {
-    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(saleRow({ status: "DRAFT" }) as never);
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "PENDING_PAYMENT" }) as never,
+    );
     vi.mocked(inventoryService.recordMovement).mockRejectedValue(
       Object.assign(new Error("no stock"), { code: "INSUFFICIENT_STOCK" }),
     );
@@ -679,12 +689,21 @@ describe("saleService.cancel", () => {
     );
   });
 
-  it("rejects cancelling a COMPLETED sale", async () => {
+  it("reverses stock when cancelling a COMPLETED sale", async () => {
     vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
       saleRow({ status: "COMPLETED" }) as never,
     );
+    vi.mocked(saleRepository.updateStatus).mockResolvedValue(
+      saleRow({ status: "CANCELLED" }) as never,
+    );
 
-    await expect(saleService.cancel(1n, 800n)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    const sale = await saleService.cancel(1n, 800n);
+
+    expect(sale.status).toBe("CANCELLED");
+    expect(inventoryService.recordMovement).toHaveBeenCalledWith(
+      expect.objectContaining({ transactionType: "SALE_RETURN_IN" }),
+      "sale-tx",
+    );
   });
 
   it("still reverses stock when cancelling a PACKED sale (stock left at confirm, well before packing)", async () => {

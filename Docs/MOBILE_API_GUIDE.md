@@ -34,11 +34,10 @@ call the real API directly and hold the tokens itself.
 POST /api/v1/auth/login
 Content-Type: application/json
 
-{ "tenantCode": "acme", "email": "manager@store.test", "password": "..." }
+{ "email": "manager@store.test", "password": "..." }
 ```
 
-`tenantCode` is required — email is only unique *within* a tenant, not
-globally, so the server can't identify which tenant to check without it.
+Login authenticates the user directly by email and password.
 
 Response:
 
@@ -320,7 +319,7 @@ or `POST /api/v1/users` with `"warehouseId": "<id>"` in the body.
 ## 8. Example flow
 
 ```
-1. POST /api/v1/auth/login       {tenantCode, email, password} -> {accessToken, refreshToken}
+1. POST /api/v1/auth/login       {email, password} -> {accessToken, refreshToken}
 2. GET  /api/v1/auth/me          (Bearer accessToken)          -> role + permissions
 3. GET  /api/v1/warehouses       (Bearer accessToken)          -> exactly one row if scoped;
                                                                    today, this is the only way

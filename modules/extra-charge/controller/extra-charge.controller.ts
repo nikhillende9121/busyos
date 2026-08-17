@@ -41,6 +41,7 @@ export const extraChargeController = {
         value: input.value,
         isTaxable: input.isTaxable,
         taxRateId: input.taxRateId !== undefined ? BigInt(input.taxRateId) : undefined,
+        applicableChannels: input.applicableChannels,
         createdBy: auth.userId,
       });
       return successResponse(charge, "Extra charge created", 201);
@@ -63,6 +64,7 @@ export const extraChargeController = {
         isTaxable: input.isTaxable,
         taxRateId: input.taxRateId !== undefined ? BigInt(input.taxRateId) : undefined,
         isActive: input.isActive,
+        applicableChannels: input.applicableChannels,
         updatedBy: auth.userId,
       });
       return successResponse(charge, "Extra charge updated");

@@ -17,9 +17,10 @@ export const authRepository = {
     });
   },
 
-  findActiveUserByEmail(tenantId: bigint, email: string) {
+  findActiveUserByEmail(email: string) {
     return prisma.user.findFirst({
-      where: { tenantId, email, deletedAt: null },
+      where: { email, deletedAt: null },
+      include: { tenant: true },
     });
   },
 
@@ -37,7 +38,7 @@ export const authRepository = {
   findUserWithRoleById(tenantId: bigint, userId: bigint) {
     return prisma.user.findFirst({
       where: { id: userId, tenantId, deletedAt: null },
-      include: { role: true, tenant: true, warehouse: true },
+      include: { role: true, tenant: { include: { settings: true } }, warehouse: true },
     });
   },
 };

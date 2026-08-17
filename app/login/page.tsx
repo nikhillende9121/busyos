@@ -5,9 +5,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2, Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { loginSchema, type LoginInput } from "@/modules/auth/schema/auth.schema";
 import { Button } from "@/components/ui/button";
+import { LoaderButton } from "@/components/ui/loader-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,7 +59,7 @@ function LoginForm() {
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { tenantCode: "", email: "", password: "" },
+    defaultValues: { email: "", password: "" },
   });
 
   const onSubmit = async (values: LoginInput) => {
@@ -121,23 +122,13 @@ function LoginForm() {
           <CardContent>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="tenantCode">Tenant code</Label>
-                <div className="relative">
-                  <Building2 className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input id="tenantCode" placeholder="demo" className="pl-8" {...form.register("tenantCode")} />
-                </div>
-                {form.formState.errors.tenantCode && (
-                  <p className="text-sm text-destructive">{form.formState.errors.tenantCode.message}</p>
-                )}
-              </div>
-              <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
                 <div className="relative">
                   <Mail className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="email"
                     type="email"
-                    placeholder="admin@demo.test"
+                    placeholder="you@company.com"
                     className="pl-8"
                     {...form.register("email")}
                   />
@@ -170,9 +161,9 @@ function LoginForm() {
                 )}
               </div>
               {formError && <p className="text-sm text-destructive">{formError}</p>}
-              <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
-              </Button>
+              <LoaderButton type="submit" className="w-full" loading={form.formState.isSubmitting}>
+                Sign in
+              </LoaderButton>
             </form>
           </CardContent>
         </Card>

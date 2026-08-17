@@ -26,7 +26,7 @@ Two-token JWT flow, no cookies (that's the browser's problem, not yours):
 
 ```
 POST /api/v1/auth/login
-Body: { "tenantCode": "acme", "email": "manager@store.test", "password": "..." }
+Body: { "email": "manager@store.test", "password": "..." }
 -> { accessToken, refreshToken }
 ```
 - Access token TTL 15 min, refresh token TTL 7 days.

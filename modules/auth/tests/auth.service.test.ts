@@ -39,12 +39,16 @@ const TEST_PASSWORD = "Password123";
 // still uses SALT_ROUNDS = 12 in password.util.ts.
 const TEST_PASSWORD_HASH = await bcrypt.hash(TEST_PASSWORD, 4);
 
-function activeTenant(overrides: Partial<{ id: bigint; status: string }> = {}) {
-  return { id: 1n, status: "ACTIVE", ...overrides };
-}
-
-function activeUser(overrides: Partial<{ id: bigint; roleId: bigint; status: string; password: string }> = {}) {
-  return { id: 10n, roleId: 2n, status: "ACTIVE", password: TEST_PASSWORD_HASH, ...overrides };
+function activeUser(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 10n,
+    tenantId: 1n,
+    roleId: 2n,
+    status: "ACTIVE",
+    password: TEST_PASSWORD_HASH,
+    tenant: { id: 1n, status: "ACTIVE" },
+    ...overrides,
+  };
 }
 
 describe("authService.login", () => {
@@ -53,11 +57,9 @@ describe("authService.login", () => {
   });
 
   it("returns a token pair for valid credentials", async () => {
-    vi.mocked(authRepository.findTenantByCode).mockResolvedValue(activeTenant() as never);
     vi.mocked(authRepository.findActiveUserByEmail).mockResolvedValue(activeUser() as never);
 
     const result = await authService.login({
-      tenantCode: "acme",
       email: "user@acme.com",
       password: TEST_PASSWORD,
     });
@@ -65,44 +67,39 @@ describe("authService.login", () => {
     expect(result).toEqual({ accessToken: "access-token", refreshToken: "refresh-token" });
   });
 
-  it("rejects an unknown tenant with the same generic error as a wrong password", async () => {
-    vi.mocked(authRepository.findTenantByCode).mockResolvedValue(null);
+  it("rejects an unknown user with generic error", async () => {
+    vi.mocked(authRepository.findActiveUserByEmail).mockResolvedValue(null);
 
     await expect(
-      authService.login({ tenantCode: "missing", email: "x@x.com", password: TEST_PASSWORD }),
+      authService.login({ email: "missing@x.com", password: TEST_PASSWORD }),
     ).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
   });
 
-  it("rejects a suspended tenant even with correct credentials", async () => {
-    vi.mocked(authRepository.findTenantByCode).mockResolvedValue(
-      activeTenant({ status: "SUSPENDED" }) as never,
+  it("rejects a suspended tenant associated with user even with correct credentials", async () => {
+    vi.mocked(authRepository.findActiveUserByEmail).mockResolvedValue(
+      activeUser({ tenant: { id: 1n, status: "SUSPENDED" } }) as never,
     );
 
     await expect(
-      authService.login({ tenantCode: "acme", email: "user@acme.com", password: TEST_PASSWORD }),
+      authService.login({ email: "user@acme.com", password: TEST_PASSWORD }),
     ).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
-
-    // A suspended tenant must fail before the user table is even queried.
-    expect(authRepository.findActiveUserByEmail).not.toHaveBeenCalled();
   });
 
   it("rejects a wrong password with the same code as an unknown user", async () => {
-    vi.mocked(authRepository.findTenantByCode).mockResolvedValue(activeTenant() as never);
     vi.mocked(authRepository.findActiveUserByEmail).mockResolvedValue(activeUser() as never);
 
     await expect(
-      authService.login({ tenantCode: "acme", email: "user@acme.com", password: "wrong-password" }),
+      authService.login({ email: "user@acme.com", password: "wrong-password" }),
     ).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
   });
 
   it("rejects an inactive user", async () => {
-    vi.mocked(authRepository.findTenantByCode).mockResolvedValue(activeTenant() as never);
     vi.mocked(authRepository.findActiveUserByEmail).mockResolvedValue(
       activeUser({ status: "INVITED" }) as never,
     );
 
     await expect(
-      authService.login({ tenantCode: "acme", email: "user@acme.com", password: TEST_PASSWORD }),
+      authService.login({ email: "user@acme.com", password: TEST_PASSWORD }),
     ).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
   });
 });
@@ -114,7 +111,7 @@ describe("authService.refresh", () => {
 
   it("re-validates current tenant/user state rather than trusting the token alone", async () => {
     vi.mocked(verifyToken).mockReturnValue({ sub: "10", tenantId: "1", roleId: "2" });
-    vi.mocked(authRepository.findTenantById).mockResolvedValue(activeTenant() as never);
+    vi.mocked(authRepository.findTenantById).mockResolvedValue({ id: 1n, status: "ACTIVE" } as never);
     vi.mocked(authRepository.findUserById).mockResolvedValue(activeUser() as never);
 
     const result = await authService.refresh({ refreshToken: "some-refresh-token" });
@@ -124,7 +121,7 @@ describe("authService.refresh", () => {
 
   it("rejects refresh for a user deactivated after the token was issued", async () => {
     vi.mocked(verifyToken).mockReturnValue({ sub: "10", tenantId: "1", roleId: "2" });
-    vi.mocked(authRepository.findTenantById).mockResolvedValue(activeTenant() as never);
+    vi.mocked(authRepository.findTenantById).mockResolvedValue({ id: 1n, status: "ACTIVE" } as never);
     vi.mocked(authRepository.findUserById).mockResolvedValue(
       activeUser({ status: "INACTIVE" }) as never,
     );
@@ -137,7 +134,7 @@ describe("authService.refresh", () => {
   it("rejects refresh for a tenant suspended after the token was issued", async () => {
     vi.mocked(verifyToken).mockReturnValue({ sub: "10", tenantId: "1", roleId: "2" });
     vi.mocked(authRepository.findTenantById).mockResolvedValue(
-      activeTenant({ status: "SUSPENDED" }) as never,
+      { id: 1n, status: "SUSPENDED" } as never,
     );
 
     await expect(authService.refresh({ refreshToken: "some-refresh-token" })).rejects.toMatchObject({
@@ -160,7 +157,22 @@ describe("authService.me", () => {
       warehouseId: null,
       warehouse: null,
       role: { id: 2n, name: "Admin" },
-      tenant: { logoPublicId: null },
+      tenant: {
+        id: 1n,
+        name: "Acme Corp",
+        code: "acme",
+        status: "ACTIVE",
+        logoPublicId: null,
+        settings: {
+          companyName: "Acme Inc",
+          gstNumber: "27AAAAA0000A1Z5",
+          currency: "INR",
+          timezone: "Asia/Kolkata",
+          invoicePrefix: "INV-",
+          homeState: "Maharashtra",
+          taxInclusivePricing: false,
+        },
+      },
     } as never);
     vi.mocked(rbacLookup.listPermissionCodesForRole).mockResolvedValue([
       "PRODUCT.VIEW",
@@ -176,6 +188,20 @@ describe("authService.me", () => {
       email: "admin@acme.com",
       tenantId: "1",
       tenantLogoUrl: null,
+      tenant: {
+        id: "1",
+        name: "Acme Corp",
+        code: "acme",
+        status: "ACTIVE",
+        logoUrl: null,
+        companyName: "Acme Inc",
+        gstNumber: "27AAAAA0000A1Z5",
+        currency: "INR",
+        timezone: "Asia/Kolkata",
+        invoicePrefix: "INV-",
+        homeState: "Maharashtra",
+        taxInclusivePricing: false,
+      },
       warehouseId: null,
       warehouseName: null,
       role: { id: "2", name: "Admin" },
@@ -193,7 +219,7 @@ describe("authService.me", () => {
       warehouseId: 5n,
       warehouse: { id: 5n, name: "Downtown Store" },
       role: { id: 2n, name: "Store Manager" },
-      tenant: { logoPublicId: null },
+      tenant: { id: 1n, name: "Acme Corp", code: "acme", status: "ACTIVE", logoPublicId: null },
     } as never);
     vi.mocked(rbacLookup.listPermissionCodesForRole).mockResolvedValue(["SALE.VIEW"]);
 
@@ -201,6 +227,7 @@ describe("authService.me", () => {
 
     expect(result.warehouseId).toBe("5");
     expect(result.warehouseName).toBe("Downtown Store");
+    expect(result.tenant.name).toBe("Acme Corp");
   });
 
   it("builds a Cloudinary URL for the tenant's logo when one is set", async () => {
@@ -210,13 +237,14 @@ describe("authService.me", () => {
       name: "Admin User",
       email: "admin@acme.com",
       role: { id: 2n, name: "Admin" },
-      tenant: { logoPublicId: "tenants/1/logo/abc" },
+      tenant: { id: 1n, name: "Acme Corp", code: "acme", status: "ACTIVE", logoPublicId: "tenants/1/logo/abc" },
     } as never);
     vi.mocked(rbacLookup.listPermissionCodesForRole).mockResolvedValue([]);
 
     const result = await authService.me({ userId: 10n, tenantId: 1n, roleId: 2n, warehouseId: null });
 
     expect(result.tenantLogoUrl).toContain("tenants/1/logo/abc");
+    expect(result.tenant.logoUrl).toContain("tenants/1/logo/abc");
   });
 
   it("rejects when the user no longer exists (deleted after the token was issued)", async () => {
