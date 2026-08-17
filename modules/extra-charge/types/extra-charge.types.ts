@@ -6,7 +6,7 @@ export type ExtraChargeView = {
   isTaxable: boolean;
   taxRateId: string | null;
   isActive: boolean;
-  applicableChannels: string[] | null;
+  applicableChannels: ("POS" | "ONLINE" | "MARKETPLACE" | "PHONE")[] | null;
   createdAt: string;
   updatedAt: string;
 };

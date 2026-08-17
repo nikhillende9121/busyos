@@ -101,7 +101,7 @@ function toExtraChargeView(charge: ExtraCharge): ExtraChargeView {
     taxRateId: charge.taxRateId?.toString() ?? null,
     isActive: charge.isActive,
     applicableChannels: charge.applicableChannels
-      ? charge.applicableChannels.split(",").filter(Boolean)
+      ? (charge.applicableChannels.split(",").filter(Boolean) as ("POS" | "ONLINE" | "MARKETPLACE" | "PHONE")[])
       : null,
     createdAt: charge.createdAt.toISOString(),
     updatedAt: charge.updatedAt.toISOString(),

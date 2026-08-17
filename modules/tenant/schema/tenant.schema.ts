@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { idString } from "@/shared/validation/id";
+import { optionalIdString } from "@/shared/validation/id";
 
 // All optional: this is a partial update (PUT .../me/settings) — the
 // service upserts only the fields provided, see tenant.service.ts.
@@ -16,10 +16,7 @@ export const updateTenantSettingsSchema = z.object({
   // GST configuration — see modules/pricing/service/tax.service.ts.
   homeState: z.string().max(50).optional(),
   taxInclusivePricing: z.boolean().optional(),
-  // Nullable (not just optional): omitted = leave unchanged, explicit
-  // null = clear the fallback rate — same undefined-vs-null convention as
-  // modules/user/schema/user.schema.ts's warehouseId.
-  defaultTaxRateId: idString.nullable().optional(),
+  defaultTaxRateId: optionalIdString,
 });
 
 export type UpdateTenantSettingsInput = z.infer<typeof updateTenantSettingsSchema>;
