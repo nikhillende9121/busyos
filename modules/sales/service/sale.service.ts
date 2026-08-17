@@ -243,6 +243,8 @@ export const saleService = {
       );
     }
 
+    const targetStatus: SaleStatus = sale.channel === "POS" ? "COMPLETED" : "CONFIRMED";
+
     const updated = await prisma.$transaction(async (tx) => {
       for (const item of sale.items) {
         await inventoryService.recordMovement(
@@ -258,7 +260,7 @@ export const saleService = {
           tx,
         );
       }
-      const newSale = await saleRepository.updateStatus(tx, sale.id, "CONFIRMED");
+      const newSale = await saleRepository.updateStatus(tx, sale.id, targetStatus);
       return { ...newSale, items: sale.items, discounts: sale.discounts, charges: sale.charges };
     });
 

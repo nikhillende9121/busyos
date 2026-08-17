@@ -5,5 +5,5 @@ type Params = { id: string };
 
 export const POST = withApiAuth<Params>(saleController.cancel, {
   feature: "SALES",
-  permission: "SALE.UPDATE",
+  permission: "SALE.CANCEL",
 });

@@ -176,7 +176,7 @@ export const saleExchangeService = {
         );
       }
 
-      // 2. Replacement sale leg — created straight into CONFIRMED (stock
+      // 2. Replacement sale leg — created straight into COMPLETED (stock
       // moves immediately), since like a return this records a physical
       // exchange that already happened at the counter, never a DRAFT cart.
       const newSale = await saleRepository.create(tx, {
@@ -184,7 +184,7 @@ export const saleExchangeService = {
         customerId: originalSale.customerId,
         warehouseId: originalSale.warehouseId,
         channel: "POS",
-        status: "CONFIRMED",
+        status: "COMPLETED",
         saleDate: new Date(),
         createdBy: dto.createdBy,
       });

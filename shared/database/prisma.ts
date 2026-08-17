@@ -30,6 +30,11 @@ function createPrismaClient(): PrismaClient {
     password: requireEnv("DB_PASSWORD"),
     database: requireEnv("DB_NAME"),
     allowPublicKeyRetrieval: true,
+    connectionLimit: Number(process.env.DB_POOL_LIMIT ?? 25),
+    connectTimeout: 30000,
+    acquireTimeout: 30000,
+    idleTimeout: 60000,
+    keepAliveDelay: 10000,
   });
   return new PrismaClient({ adapter });
 }

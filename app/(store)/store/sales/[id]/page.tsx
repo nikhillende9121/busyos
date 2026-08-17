@@ -73,16 +73,13 @@ export default function StoreSaleDetailPage() {
     return <p className="text-muted-foreground">Loading…</p>;
   }
 
-  const isPos = sale.channel === "POS";
-  const initialStatus = isPos ? "DRAFT" : "PENDING_PAYMENT";
-
-  const canConfirm = sale.status === initialStatus && can("SALE.CONFIRM");
-  const canProcess = !isPos && sale.status === "CONFIRMED" && can("SALE.UPDATE");
-  const canPack = !isPos && sale.status === "PROCESSING" && can("SALE.UPDATE");
-  const canShip = !isPos && sale.status === "PACKED" && can("SALE.UPDATE");
-  const canDeliver = !isPos && sale.status === "SHIPPED" && can("SALE.UPDATE");
-  const canComplete = isPos && sale.status === "CONFIRMED" && can("SALE.UPDATE");
-  const canCancel = CANCELLABLE_STATUSES.has(sale.status) && can("SALE.UPDATE");
+  const canConfirm = !isPos && (sale.status === "DRAFT" || sale.status === "PENDING_PAYMENT") && can("SALE.CONFIRM");
+  const canProcess = !isPos && sale.status === "CONFIRMED" && can("SALE.PROCESS");
+  const canPack = !isPos && sale.status === "PROCESSING" && can("SALE.PACK");
+  const canShip = !isPos && sale.status === "PACKED" && can("SALE.SHIP");
+  const canDeliver = !isPos && sale.status === "SHIPPED" && can("SALE.DELIVER");
+  const canComplete = isPos && sale.status !== "COMPLETED" && sale.status !== "CANCELLED" && can("SALE.COMPLETE");
+  const canCancel = CANCELLABLE_STATUSES.has(sale.status) && can("SALE.CANCEL");
 
   return (
     <div className="space-y-6">
