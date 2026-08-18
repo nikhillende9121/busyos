@@ -82,6 +82,7 @@ export default function SaleDetailPage() {
     return <p className="text-muted-foreground">Loading…</p>;
   }
 
+  const isPos = sale.channel === "POS";
   const canConfirm = !isPos && (sale.status === "DRAFT" || sale.status === "PENDING_PAYMENT") && can("SALE.CONFIRM");
   const canProcess = !isPos && sale.status === "CONFIRMED" && can("SALE.PROCESS");
   const canPack = !isPos && sale.status === "PROCESSING" && can("SALE.PACK");
