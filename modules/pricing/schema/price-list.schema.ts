@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { idString } from "@/shared/validation/id";
+import { idString, optionalIdString } from "@/shared/validation/id";
 import { nonNegativeDecimalString, positiveDecimalString } from "@/shared/validation/decimal";
 
 // `.optional()` only ever accepts a literal `undefined` — an empty string
@@ -15,10 +15,10 @@ const optionalPositiveDecimalString = z.preprocess(
 );
 
 export const createPriceListSchema = z.object({
-  name: z.string().min(1).max(150),
-  warehouseId: idString.optional(),
-  customerGroupId: idString.optional(),
-  customerId: idString.optional(),
+  name: z.string().min(1, "Name is required").max(150),
+  warehouseId: optionalIdString,
+  customerGroupId: optionalIdString,
+  customerId: optionalIdString,
   currency: z.string().length(3).optional(),
   isDefault: z.boolean().optional(),
   items: z

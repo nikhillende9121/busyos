@@ -4,16 +4,18 @@
 export type SaleItemTaxView = {
   taxRateId: string | null;
   component: string;
-  ratePercent: string;
-  amount: string;
+  ratePercent: string | number;
+  amount: string | number;
 };
 
 export type SaleItemView = {
   id: string;
   productId: string;
-  quantity: string;
-  price: string;
-  tax: string;
+  productName?: string | null;
+  quantity: string | number;
+  price: string | number;
+  amount?: string | number;
+  tax: string | number;
   taxes: SaleItemTaxView[];
 };
 
@@ -22,7 +24,8 @@ export type SaleDiscountView = {
   saleItemId: string | null;
   discountId: string | null;
   couponId: string | null;
-  amount: string;
+  amount: string | number;
+  isCoupon?: boolean;
 };
 
 // Invoice-level charge (shipping/packing/handling — not tax), snapshot of
@@ -30,13 +33,17 @@ export type SaleDiscountView = {
 export type SaleChargeView = {
   id: string;
   name: string;
-  amount: string;
-  taxAmount: string;
+  amount: string | number;
+  taxAmount: string | number;
 };
 
 export type SaleView = {
   id: string;
+  saleNumber?: string;
   customerId: string;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerEmail?: string | null;
   warehouseId: string;
   channel: string;
   status: string;
@@ -45,6 +52,9 @@ export type SaleView = {
   items: SaleItemView[];
   discounts: SaleDiscountView[];
   charges: SaleChargeView[];
+  subtotal?: string | number;
+  taxAmount?: string | number;
+  totalAmount?: string | number;
   createdAt: string;
   updatedAt: string;
 };

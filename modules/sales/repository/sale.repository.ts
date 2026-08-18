@@ -3,7 +3,9 @@ import type { Db } from "@/shared/database/transaction-client";
 import type { Prisma, SaleChannel, SaleStatus } from "@prisma/client";
 
 const includeFullSale = {
-  items: { include: { taxes: true } },
+  customer: true,
+  tenant: { include: { settings: true } },
+  items: { include: { taxes: true, product: true } },
   discounts: true,
   charges: true,
 } as const;

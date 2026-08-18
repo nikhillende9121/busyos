@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import type { Sale, SaleChannel, SaleItem, SaleItemTax, SaleDiscount, SaleCharge, SaleStatus } from "@prisma/client";
+import type { Sale, SaleChannel, SaleItem, SaleItemTax, SaleDiscount, SaleCharge, SaleStatus, Customer, Tenant, TenantSetting, Product } from "@prisma/client";
 import { prisma } from "@/shared/database/prisma";
 import { saleRepository } from "../repository/sale.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
@@ -52,7 +52,7 @@ export const saleService = {
       channel: filter.channel as never,
       warehouseId: filter.scopedWarehouseId ?? undefined,
     });
-    return sales.map(toSaleView);
+    return sales.map((sale) => toSaleView(sale));
   },
 
   async getById(tenantId: bigint, saleId: bigint, scopedWarehouseId: bigint | null = null): Promise<SaleView> {
@@ -501,46 +501,86 @@ export async function resolveSaleCharges(
 // than a standalone one.
 export function toSaleView(
   sale: Sale & {
-    items: (SaleItem & { taxes: SaleItemTax[] })[];
-    discounts: SaleDiscount[];
-    charges: SaleCharge[];
+    customer?: Customer | null;
+    tenant?: (Tenant & { settings?: TenantSetting | null }) | null;
+    items?: (SaleItem & { product?: Product | null; taxes?: SaleItemTax[] })[];
+    discounts?: SaleDiscount[];
+    charges?: SaleCharge[];
   },
   taxInclusive: boolean = true,
 ): SaleView {
-  return {
-    id: sale.id.toString(),
-    customerId: sale.customerId.toString(),
-    warehouseId: sale.warehouseId.toString(),
-    channel: sale.channel,
-    status: sale.status,
-    saleDate: sale.saleDate.toISOString(),
-    taxInclusive,
-    items: sale.items.map((item) => ({
+  const prefix = sale.tenant?.settings?.invoicePrefix ?? "INV-";
+  const year = sale.saleDate ? new Date(sale.saleDate).getFullYear() : new Date().getFullYear();
+  const saleNumber = `${prefix}${year}-${sale.id.toString().padStart(4, "0")}`;
+
+  const customerName = sale.customer?.name ?? null;
+  const customerPhone = sale.customer?.phone ?? null;
+  const customerEmail = sale.customer?.email ?? null;
+
+  const items = (sale.items ?? []).map((item) => {
+    const quantityNum = Number(item.quantity);
+    const priceNum = Number(item.price);
+    const amountNum = quantityNum * priceNum;
+    return {
       id: item.id.toString(),
       productId: item.productId.toString(),
+      productName: item.product?.name ?? null,
       quantity: item.quantity.toString(),
       price: item.price.toString(),
+      amount: amountNum.toFixed(2),
       tax: item.tax.toString(),
-      taxes: item.taxes.map((tax) => ({
+      taxes: (item.taxes ?? []).map((tax) => ({
         taxRateId: tax.taxRateId?.toString() ?? null,
         component: tax.component,
         ratePercent: tax.ratePercent.toString(),
         amount: tax.amount.toString(),
       })),
-    })),
-    discounts: sale.discounts.map((discount) => ({
-      id: discount.id.toString(),
-      saleItemId: discount.saleItemId?.toString() ?? null,
-      discountId: discount.discountId?.toString() ?? null,
-      couponId: discount.couponId?.toString() ?? null,
-      amount: discount.amount.toString(),
-    })),
-    charges: sale.charges.map((charge) => ({
-      id: charge.id.toString(),
-      name: charge.name,
-      amount: charge.amount.toString(),
-      taxAmount: charge.taxAmount.toString(),
-    })),
+    };
+  });
+
+  const discounts = (sale.discounts ?? []).map((discount) => ({
+    id: discount.id.toString(),
+    saleItemId: discount.saleItemId?.toString() ?? null,
+    discountId: discount.discountId?.toString() ?? null,
+    couponId: discount.couponId?.toString() ?? null,
+    amount: discount.amount.toString(),
+    isCoupon: discount.couponId !== null,
+  }));
+
+  const charges = (sale.charges ?? []).map((charge) => ({
+    id: charge.id.toString(),
+    name: charge.name,
+    amount: charge.amount.toString(),
+    taxAmount: charge.taxAmount.toString(),
+  }));
+
+  const subtotalNum = items.reduce((sum, item) => sum + Number(item.amount), 0);
+  const discountTotalNum = discounts.reduce((sum, discount) => sum + Number(discount.amount), 0);
+  const itemTaxTotalNum = items.reduce((sum, item) => sum + Number(item.tax), 0);
+  const chargesAmountNum = charges.reduce((sum, charge) => sum + Number(charge.amount), 0);
+  const chargesTaxTotalNum = charges.reduce((sum, charge) => sum + Number(charge.taxAmount), 0);
+
+  const totalTaxNum = itemTaxTotalNum + chargesTaxTotalNum;
+  const totalAmountNum = subtotalNum - discountTotalNum + totalTaxNum + chargesAmountNum;
+
+  return {
+    id: sale.id.toString(),
+    saleNumber,
+    customerId: sale.customerId.toString(),
+    customerName,
+    customerPhone,
+    customerEmail,
+    warehouseId: sale.warehouseId.toString(),
+    channel: sale.channel,
+    status: sale.status,
+    saleDate: sale.saleDate.toISOString(),
+    taxInclusive,
+    items,
+    discounts,
+    charges,
+    subtotal: subtotalNum.toFixed(2),
+    taxAmount: totalTaxNum.toFixed(2),
+    totalAmount: totalAmountNum.toFixed(2),
     createdAt: sale.createdAt.toISOString(),
     updatedAt: sale.updatedAt.toISOString(),
   };

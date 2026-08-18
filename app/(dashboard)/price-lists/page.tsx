@@ -41,7 +41,16 @@ const NONE = "__none__";
 // product yet — translate the known fields to what actually needs fixing.
 function describeError(errors: FieldErrors): string {
   if (errors.name) {
-    return "Enter a name for this price list.";
+    return (errors.name.message as string) || "Enter a name for this price list.";
+  }
+  if (errors.warehouseId) {
+    return (errors.warehouseId.message as string) || "Invalid warehouse selected.";
+  }
+  if (errors.customerGroupId) {
+    return (errors.customerGroupId.message as string) || "Invalid customer group selected.";
+  }
+  if (errors.currency) {
+    return (errors.currency.message as string) || "Currency must be a 3-letter code (e.g. INR).";
   }
 
   const itemsError = errors.items as
@@ -50,7 +59,6 @@ function describeError(errors: FieldErrors): string {
     | undefined;
 
   if (itemsError && !Array.isArray(itemsError)) {
-    // Array-level failure (e.g. zod's `.min(1, "at least one item...")`).
     return itemsError.message ?? itemsError.root?.message ?? "Add at least one product line.";
   }
   if (Array.isArray(itemsError)) {
@@ -58,7 +66,7 @@ function describeError(errors: FieldErrors): string {
     if (index !== -1) {
       const item = itemsError[index];
       if (item.productId) return `Line ${index + 1}: select a product.`;
-      if (item.price) return `Line ${index + 1}: enter a valid price.`;
+      if (item.price) return `Line ${index + 1}: enter a valid price (e.g. 500).`;
       if (item.minQuantity) return `Line ${index + 1}: minimum quantity must be a positive number, or left blank.`;
     }
   }
@@ -85,6 +93,7 @@ export default function PriceListsPage() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   const { data: priceLists, isLoading } = useQuery({
     queryKey: queryKeys.list("price-lists"),
@@ -125,14 +134,18 @@ export default function PriceListsPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.list("price-lists") });
       toast.success("Price list created");
       setCreateOpen(false);
+      setServerError(null);
       form.reset(defaultFormValues);
     },
   });
 
   const onSubmit = async (values: FieldValues) => {
+    setServerError(null);
     try {
       const payload = {
         ...values,
+        warehouseId: values.warehouseId === NONE || !values.warehouseId ? undefined : values.warehouseId,
+        customerGroupId: values.customerGroupId === NONE || !values.customerGroupId ? undefined : values.customerGroupId,
         items: (values.items as { productId: string; price: string; minQuantity?: string }[]).map((item) => ({
           ...item,
           minQuantity: item.minQuantity || undefined,
@@ -140,12 +153,16 @@ export default function PriceListsPage() {
       };
       await createMutation.mutateAsync(payload);
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
+      const msg = error instanceof ApiError ? error.message : (error as Error)?.message || "Something went wrong. Please try again.";
+      setServerError(msg);
+      toast.error(msg);
     }
   };
 
   const onInvalid = (errors: FieldErrors) => {
-    toast.error(describeError(errors));
+    const errorMsg = describeError(errors);
+    setServerError(errorMsg);
+    toast.error(errorMsg);
   };
 
   return (
@@ -159,7 +176,7 @@ export default function PriceListsPage() {
           </p>
         </div>
         {can("PRICE_LIST.CREATE") && (
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => { setServerError(null); setCreateOpen(true); }}>
             <Plus /> New price list
           </Button>
         )}
@@ -173,15 +190,24 @@ export default function PriceListsPage() {
         emptyMessage="No price lists yet."
       />
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) setServerError(null); }}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>New price list</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-4">
+            {serverError && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive font-medium">
+                {serverError}
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label htmlFor="name">Name</Label>
               <Input id="name" placeholder="Wholesale Pricing" {...form.register("name")} />
+              {form.formState.errors.name && (
+                <p className="text-xs text-destructive">{form.formState.errors.name.message as string}</p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -209,6 +235,9 @@ export default function PriceListsPage() {
                     </Select>
                   )}
                 />
+                {form.formState.errors.warehouseId && (
+                  <p className="text-xs text-destructive">{form.formState.errors.warehouseId.message as string}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>Customer group (optional)</Label>
@@ -234,6 +263,9 @@ export default function PriceListsPage() {
                     </Select>
                   )}
                 />
+                {form.formState.errors.customerGroupId && (
+                  <p className="text-xs text-destructive">{form.formState.errors.customerGroupId.message as string}</p>
+                )}
               </div>
             </div>
 
@@ -241,6 +273,9 @@ export default function PriceListsPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="currency">Currency</Label>
                 <Input id="currency" placeholder="INR" {...form.register("currency")} />
+                {form.formState.errors.currency && (
+                  <p className="text-xs text-destructive">{form.formState.errors.currency.message as string}</p>
+                )}
               </div>
               <div className="flex items-end gap-2 pb-1.5">
                 <Controller
