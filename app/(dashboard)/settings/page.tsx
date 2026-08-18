@@ -39,7 +39,7 @@ export default function SettingsPage() {
   });
 
   const form = useForm<UpdateTenantSettingsInput>({
-    resolver: zodResolver(updateTenantSettingsSchema),
+    resolver: zodResolver(updateTenantSettingsSchema as never),
     defaultValues: {},
   });
 

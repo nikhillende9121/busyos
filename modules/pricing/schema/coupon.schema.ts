@@ -4,12 +4,12 @@ import { nonNegativeDecimalString, optionalNonNegativeDecimalString } from "@/sh
 
 const optionalPositiveInt = z.preprocess(
   (val) => (val === "" || val === null || val === undefined ? undefined : Number(val)),
-  z.number({ invalid_type_error: "Must be a valid number" }).int("Must be a whole number").positive("Must be greater than 0").optional(),
+  z.number().int("Must be a whole number").positive("Must be greater than 0").optional(),
 );
 
 const optionalDate = z.preprocess(
   (val) => (val === "" || val === null || val === undefined ? undefined : val),
-  z.coerce.date({ invalid_type_error: "Invalid date" }).optional(),
+  z.coerce.date().optional(),
 );
 
 export const createCouponSchema = z.object({
@@ -26,7 +26,7 @@ export const createCouponSchema = z.object({
   maxDiscountAmount: optionalNonNegativeDecimalString,
   usageLimitTotal: optionalPositiveInt,
   usageLimitPerCustomer: optionalPositiveInt,
-  startDate: z.coerce.date({ invalid_type_error: "Start date is required" }),
+  startDate: z.coerce.date(),
   endDate: optionalDate,
   stackable: z.boolean().optional(),
 });

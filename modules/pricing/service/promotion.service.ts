@@ -5,6 +5,8 @@ import { discountRepository } from "../repository/discount.repository";
 import { couponRepository } from "../repository/coupon.repository";
 import { AppError } from "@/shared/errors/app-error";
 import { resolveSaleCharges } from "@/modules/sales/service/sale.service";
+import { taxService } from "./tax.service";
+import type { TaxContext } from "../types/tax.types";
 import type { QuoteInput } from "../dto/promotion.dto";
 import type { QuoteView, QuoteLineView, QuoteCouponView, QuoteLineDiscountView, QuoteChargeView } from "../types/promotion.types";
 
@@ -144,12 +146,11 @@ export const promotionService = {
     let chargesTaxTotal = new Prisma.Decimal(0);
 
     if (input.extraChargeIds?.length || input.channel) {
-      const taxContext = {
+      const taxContext: TaxContext = await taxService.resolveContext({
         tenantId: input.tenantId,
-        stateCode: "",
-        companyStateCode: "",
-        taxInclusivePricing: true,
-      };
+        warehouseId: input.warehouseId,
+        customerId: input.customerId,
+      });
 
       const charges = await resolveSaleCharges(
         input.tenantId,

@@ -16,7 +16,7 @@ export const updateTenantSettingsSchema = z.object({
   // GST configuration — see modules/pricing/service/tax.service.ts.
   homeState: z.string().max(50).optional(),
   taxInclusivePricing: z.boolean().optional(),
-  defaultTaxRateId: z.union([optionalIdString, z.null()]),
+  defaultTaxRateId: optionalIdString,
 });
 
 export type UpdateTenantSettingsInput = z.infer<typeof updateTenantSettingsSchema>;

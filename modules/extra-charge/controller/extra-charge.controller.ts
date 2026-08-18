@@ -40,7 +40,7 @@ export const extraChargeController = {
         calcType: input.calcType,
         value: input.value,
         isTaxable: input.isTaxable,
-        taxRateId: input.taxRateId !== undefined ? BigInt(input.taxRateId) : undefined,
+        taxRateId: input.taxRateId ? BigInt(input.taxRateId) : undefined,
         applicableChannels: input.applicableChannels,
         createdBy: auth.userId,
       });
@@ -62,7 +62,7 @@ export const extraChargeController = {
         calcType: input.calcType,
         value: input.value,
         isTaxable: input.isTaxable,
-        taxRateId: input.taxRateId !== undefined ? BigInt(input.taxRateId) : undefined,
+        taxRateId: input.taxRateId ? BigInt(input.taxRateId) : input.taxRateId === null ? null : undefined,
         isActive: input.isActive,
         applicableChannels: input.applicableChannels,
         updatedBy: auth.userId,

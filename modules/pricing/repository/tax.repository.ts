@@ -4,21 +4,24 @@ import { prisma } from "@/shared/database/prisma";
 // entities (Warehouse/Customer/TenantSetting/Product/TaxRate) because tax
 // resolution genuinely needs all of them; nothing here writes.
 export const taxRepository = {
-  findWarehouseState(tenantId: bigint, warehouseId: bigint) {
+  findWarehouseState(tenantId: bigint, warehouseId?: bigint) {
+    if (!warehouseId) return null;
     return prisma.warehouse.findFirst({
       where: { id: warehouseId, tenantId },
       select: { state: true },
     });
   },
 
-  findCustomerState(tenantId: bigint, customerId: bigint) {
+  findCustomerState(tenantId: bigint, customerId?: bigint) {
+    if (!customerId) return null;
     return prisma.customer.findFirst({
       where: { id: customerId, tenantId },
       select: { state: true },
     });
   },
 
-  findSupplierState(tenantId: bigint, supplierId: bigint) {
+  findSupplierState(tenantId: bigint, supplierId?: bigint) {
+    if (!supplierId) return null;
     return prisma.supplier.findFirst({
       where: { id: supplierId, tenantId },
       select: { state: true },

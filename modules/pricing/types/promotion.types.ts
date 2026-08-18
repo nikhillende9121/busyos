@@ -36,8 +36,8 @@ export type QuoteView = {
   subtotal: string;
   lineDiscountTotal: string;
   coupon: QuoteCouponView | null;
-  charges: QuoteChargeView[];
-  chargesTotal: string;
-  chargesTaxTotal: string;
+  charges?: QuoteChargeView[];
+  chargesTotal?: string;
+  chargesTaxTotal?: string;
   grandTotal: string;
 };

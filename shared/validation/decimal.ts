@@ -5,7 +5,7 @@ import { z } from "zod";
 // numbers to string.
 export const nonNegativeDecimalString = z.preprocess(
   (val) => (typeof val === "number" ? String(val) : val),
-  z.string({ invalid_type_error: "must be a non-negative decimal" }).regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal"),
+  z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal"),
 );
 
 export const positiveDecimalString = nonNegativeDecimalString.refine(
@@ -23,5 +23,5 @@ export const optionalNonNegativeDecimalString = z.preprocess(
     }
     return val;
   },
-  z.string({ invalid_type_error: "must be a non-negative decimal" }).regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal").optional(),
+  z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal").optional(),
 );

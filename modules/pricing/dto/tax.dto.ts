@@ -1,7 +1,7 @@
 export type TaxContextInput = {
   tenantId: bigint;
-  warehouseId: bigint;
-  customerId: bigint;
+  warehouseId?: bigint;
+  customerId?: bigint;
   taxInclusivePricing?: boolean;
 };
 
@@ -11,8 +11,8 @@ export type TaxContextInput = {
 // question instead of an output-tax one.
 export type PurchaseTaxContextInput = {
   tenantId: bigint;
-  warehouseId: bigint;
-  supplierId: bigint;
+  warehouseId?: bigint;
+  supplierId?: bigint;
   taxInclusivePricing?: boolean;
 };
 

@@ -5,7 +5,7 @@ import { z } from "zod";
 // coerces numbers/bigints to string and validates that the value is a valid numeric string.
 export const idString = z.preprocess(
   (val) => (typeof val === "number" || typeof val === "bigint" ? String(val) : val),
-  z.string({ invalid_type_error: "must be a numeric id" }).regex(/^\d+$/, "must be a numeric id"),
+  z.string().regex(/^\d+$/, "must be a numeric id"),
 );
 
 // Optional variant that safely handles empty strings (""), null, undefined, and "__none__"
@@ -20,5 +20,5 @@ export const optionalIdString = z.preprocess(
     }
     return val;
   },
-  z.string({ invalid_type_error: "must be a numeric id" }).regex(/^\d+$/, "must be a numeric id").nullable().optional(),
+  z.string().regex(/^\d+$/, "must be a numeric id").nullable().optional(),
 );
