@@ -30,6 +30,14 @@ export const authService = {
       throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
     }
 
+    if (input.deviceId) {
+      await authRepository.recordDeviceLogin({
+        tenantId: user.tenantId,
+        userId: user.id,
+        deviceId: input.deviceId,
+      });
+    }
+
     return issueTokenPair(user.id, user.tenantId, user.roleId);
   },
 

@@ -374,6 +374,7 @@ model Tenant {
   saleDiscounts         SaleDiscount[]
   taxRates              TaxRate[]
   extraCharges          ExtraCharge[]
+  userDevices           UserDevice[]
 
   @@map("tenants")
 }
@@ -507,6 +508,7 @@ model User {
 
   auditLogs     AuditLog[]
   notifications Notification[]
+  devices       UserDevice[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1718,4 +1720,26 @@ model IdempotencyKey {
   @@unique([tenantId, key])
   @@index([expiresAt])
   @@map("idempotency_keys")
+}
+
+// ---------------------------------------------------------------------------
+// User Devices (Device Logins)
+// ---------------------------------------------------------------------------
+
+model UserDevice {
+  id          BigInt   @id @default(autoincrement())
+  tenantId    BigInt
+  userId      BigInt
+  deviceId    String   @db.VarChar(255)
+  lastLoginAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([tenantId])
+  @@index([userId])
+  @@map("user_devices")
 }

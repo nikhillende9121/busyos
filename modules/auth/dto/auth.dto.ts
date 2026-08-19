@@ -4,6 +4,7 @@
 export type LoginDto = {
   email: string;
   password: string;
+  deviceId?: string;
 };
 
 export type RefreshDto = {

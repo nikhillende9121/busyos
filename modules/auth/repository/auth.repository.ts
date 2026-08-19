@@ -41,4 +41,24 @@ export const authRepository = {
       include: { role: true, tenant: { include: { settings: true } }, warehouse: true },
     });
   },
+
+  recordDeviceLogin(params: { tenantId: bigint; userId: bigint; deviceId: string }) {
+    return prisma.userDevice.upsert({
+      where: {
+        userId_deviceId: {
+          userId: params.userId,
+          deviceId: params.deviceId,
+        },
+      },
+      create: {
+        tenantId: params.tenantId,
+        userId: params.userId,
+        deviceId: params.deviceId,
+        lastLoginAt: new Date(),
+      },
+      update: {
+        lastLoginAt: new Date(),
+      },
+    });
+  },
 };
