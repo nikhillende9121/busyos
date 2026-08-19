@@ -17,14 +17,9 @@ export const authRepository = {
     });
   },
 
-  findActiveUserByEmail(email: string, tenantCode?: string) {
-    const trimmedCode = tenantCode?.trim();
+  findActiveUserByEmail(email: string) {
     return prisma.user.findFirst({
-      where: {
-        email,
-        deletedAt: null,
-        ...(trimmedCode ? { tenant: { code: trimmedCode } } : {}),
-      },
+      where: { email, deletedAt: null },
       include: { tenant: true },
     });
   },

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type { User, Role, Warehouse } from "@prisma/client";
 import { userRepository } from "../repository/user.repository";
+import { authRepository } from "@/modules/auth/repository/auth.repository";
 import { hashPassword } from "@/modules/auth/utils/password.util";
 import { AppError } from "@/shared/errors/app-error";
 import { getActivePlanLimits } from "@/shared/utils/plan-limits";
@@ -44,6 +45,11 @@ export const userService = {
       if (!warehouse) {
         throw new AppError("VALIDATION_ERROR", "warehouseId does not belong to this tenant");
       }
+    }
+
+    const existingEmail = await authRepository.findActiveUserByEmail(dto.email);
+    if (existingEmail) {
+      throw new AppError("DUPLICATE_EMAIL", "A user with this email already exists");
     }
 
     const passwordHash = await hashPassword(dto.password);

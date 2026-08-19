@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, Lock, Mail, Building2 } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { loginSchema, type LoginInput } from "@/modules/auth/schema/auth.schema";
 import { Button } from "@/components/ui/button";
 import { LoaderButton } from "@/components/ui/loader-button";
@@ -59,7 +59,7 @@ function LoginForm() {
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "", tenantCode: "" },
+    defaultValues: { email: "", password: "" },
   });
 
   const onSubmit = async (values: LoginInput) => {
@@ -117,23 +117,10 @@ function LoginForm() {
         <Card className="shadow-lg shadow-black/5">
           <CardHeader>
             <CardTitle>Welcome back</CardTitle>
-            <CardDescription>Enter your workspace details to continue</CardDescription>
+            <CardDescription>Enter your login credentials to continue</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="tenantCode">Workspace Code <span className="text-muted-foreground font-normal">(Optional)</span></Label>
-                <div className="relative">
-                  <Building2 className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="tenantCode"
-                    type="text"
-                    placeholder="e.g. demo (leave empty for default)"
-                    className="pl-8"
-                    {...form.register("tenantCode")}
-                  />
-                </div>
-              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
                 <div className="relative">

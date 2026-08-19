@@ -16,7 +16,7 @@ const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password";
 
 export const authService = {
   async login(input: LoginDto): Promise<TokenPair> {
-    const user = await authRepository.findActiveUserByEmail(input.email, input.tenantCode);
+    const user = await authRepository.findActiveUserByEmail(input.email);
     if (!user || user.status !== "ACTIVE") {
       throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
     }

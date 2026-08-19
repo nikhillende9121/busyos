@@ -4,7 +4,6 @@
 export type LoginDto = {
   email: string;
   password: string;
-  tenantCode?: string;
 };
 
 export type RefreshDto = {
