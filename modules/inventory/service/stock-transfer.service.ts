@@ -3,6 +3,7 @@ import type { StockTransfer, StockTransferItem, StockTransferStatus } from "@pri
 import { prisma } from "@/shared/database/prisma";
 import { stockTransferRepository } from "../repository/stock-transfer.repository";
 import { inventoryService } from "./inventory.service";
+import { notificationService } from "@/modules/notification/service/notification.service";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess, assertWarehouseAccessAny } from "@/shared/utils/assert-warehouse-access";
 import type {
@@ -136,6 +137,18 @@ export const stockTransferService = {
       return { ...created, items };
     });
 
+    // Fire push notification to destination warehouse staff asynchronously
+    Promise.resolve(
+      notificationService.sendToWarehouse({
+        tenantId: dto.tenantId,
+        warehouseId: dto.toWarehouseId,
+        title: "New Stock Transfer Requested",
+        message: `A new stock transfer #${transfer.id.toString()} has been requested for ${toWarehouse.name}.`,
+        type: "STOCK_TRANSFER",
+        data: { entityId: transfer.id.toString(), route: "STOCK_TRANSFER_DETAIL" },
+      })
+    ).catch((err) => console.error("Failed to send stock transfer create notification:", err));
+
     return toStockTransferView(transfer);
   },
 
@@ -240,6 +253,18 @@ export const stockTransferService = {
       return { ...newTransfer, items };
     });
 
+    // Notify receiving warehouse staff that items are in transit
+    Promise.resolve(
+      notificationService.sendToWarehouse({
+        tenantId: dto.tenantId,
+        warehouseId: transfer.toWarehouseId,
+        title: "Stock Transfer Shipped",
+        message: `Stock transfer #${transfer.id.toString()} has been shipped and is in transit.`,
+        type: "STOCK_TRANSFER",
+        data: { entityId: transfer.id.toString(), route: "STOCK_TRANSFER_DETAIL" },
+      })
+    ).catch((err) => console.error("Failed to send stock transfer ship notification:", err));
+
     return toStockTransferView(updated);
   },
 
@@ -287,6 +312,20 @@ export const stockTransferService = {
       }));
       return { ...newTransfer, items };
     });
+
+    // Notify origin warehouse staff that stock transfer was received
+    if (transfer.fromWarehouseId) {
+      Promise.resolve(
+        notificationService.sendToWarehouse({
+          tenantId: dto.tenantId,
+          warehouseId: transfer.fromWarehouseId,
+          title: "Stock Transfer Received",
+          message: `Stock transfer #${transfer.id.toString()} was completed and received.`,
+          type: "STOCK_TRANSFER",
+          data: { entityId: transfer.id.toString(), route: "STOCK_TRANSFER_DETAIL" },
+        })
+      ).catch((err) => console.error("Failed to send stock transfer receive notification:", err));
+    }
 
     return toStockTransferView(updated);
   },

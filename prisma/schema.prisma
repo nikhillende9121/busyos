@@ -1662,18 +1662,22 @@ model AuditLog {
 }
 
 model Notification {
-  id        BigInt   @id @default(autoincrement())
+  id        BigInt    @id @default(autoincrement())
   tenantId  BigInt
   userId    BigInt
-  title     String   @db.VarChar(200)
-  message   String   @db.Text
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  title     String    @db.VarChar(200)
+  message   String    @db.Text
+  type      String    @default("GENERAL") @db.VarChar(50)
+  data      Json?
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, userId, isRead])
+  @@index([createdAt])
   @@map("notifications")
 }
 
@@ -1723,7 +1727,7 @@ model IdempotencyKey {
 }
 
 // ---------------------------------------------------------------------------
-// User Devices (Device Logins)
+// User Devices (Device Logins & Push Tokens)
 // ---------------------------------------------------------------------------
 
 model UserDevice {
@@ -1731,6 +1735,10 @@ model UserDevice {
   tenantId    BigInt
   userId      BigInt
   deviceId    String   @db.VarChar(255)
+  fcmToken    String?  @db.VarChar(500)
+  platform    String   @default("ANDROID") @db.VarChar(20)
+  deviceModel String?  @db.VarChar(150)
+  isActive    Boolean  @default(true)
   lastLoginAt DateTime @default(now())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1740,6 +1748,6 @@ model UserDevice {
 
   @@unique([userId, deviceId])
   @@index([tenantId])
-  @@index([userId])
+  @@index([userId, isActive])
   @@map("user_devices")
 }

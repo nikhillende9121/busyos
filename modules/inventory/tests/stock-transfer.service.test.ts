@@ -26,6 +26,12 @@ vi.mock("../service/inventory.service", () => ({
   },
 }));
 
+vi.mock("@/modules/notification/service/notification.service", () => ({
+  notificationService: {
+    sendToWarehouse: vi.fn().mockImplementation(() => Promise.resolve()),
+  },
+}));
+
 import { stockTransferRepository } from "../repository/stock-transfer.repository";
 import { inventoryService } from "../service/inventory.service";
 import { stockTransferService } from "../service/stock-transfer.service";
