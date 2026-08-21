@@ -11,7 +11,13 @@ export const stockTransferRepository = {
           ? { OR: [{ fromWarehouseId: scopedWarehouseId }, { toWarehouseId: scopedWarehouseId }] }
           : {}),
       },
-      include: { items: true },
+      include: {
+        fromWarehouse: true,
+        toWarehouse: true,
+        items: {
+          include: { product: true },
+        },
+      },
       orderBy: { transferDate: "desc" },
     });
   },
@@ -19,7 +25,13 @@ export const stockTransferRepository = {
   findByIdForTenant(tenantId: bigint, id: bigint) {
     return prisma.stockTransfer.findFirst({
       where: { id, tenantId },
-      include: { items: true },
+      include: {
+        fromWarehouse: true,
+        toWarehouse: true,
+        items: {
+          include: { product: true },
+        },
+      },
     });
   },
 

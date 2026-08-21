@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import type { StockTransfer, StockTransferItem, StockTransferStatus } from "@prisma/client";
+import type { StockTransfer, StockTransferItem, StockTransferStatus, Warehouse, Product } from "@prisma/client";
 import { prisma } from "@/shared/database/prisma";
 import { stockTransferRepository } from "../repository/stock-transfer.repository";
 import { inventoryService } from "./inventory.service";
@@ -379,17 +379,49 @@ export const stockTransferService = {
 };
 
 function toStockTransferView(
-  transfer: StockTransfer & { items: StockTransferItem[] },
+  transfer: StockTransfer & {
+    fromWarehouse?: Warehouse | null;
+    toWarehouse?: Warehouse | null;
+    items: (StockTransferItem & { product?: Product | null })[];
+  },
 ): StockTransferView {
   return {
     id: transfer.id.toString(),
     fromWarehouseId: transfer.fromWarehouseId?.toString() ?? null,
+    fromWarehouse: transfer.fromWarehouse
+      ? {
+          id: transfer.fromWarehouse.id.toString(),
+          name: transfer.fromWarehouse.name,
+          code: transfer.fromWarehouse.code,
+        }
+      : transfer.fromWarehouse === null
+      ? null
+      : undefined,
     toWarehouseId: transfer.toWarehouseId.toString(),
+    toWarehouse: transfer.toWarehouse
+      ? {
+          id: transfer.toWarehouse.id.toString(),
+          name: transfer.toWarehouse.name,
+          code: transfer.toWarehouse.code,
+        }
+      : transfer.toWarehouse === null
+      ? null
+      : undefined,
     status: transfer.status,
     transferDate: transfer.transferDate.toISOString(),
     items: transfer.items.map((item) => ({
       id: item.id.toString(),
       productId: item.productId.toString(),
+      product: item.product
+        ? {
+            id: item.product.id.toString(),
+            name: item.product.name,
+            sku: item.product.sku,
+            barcode: item.product.barcode ?? null,
+          }
+        : item.product === null
+        ? null
+        : undefined,
       requestedQuantity: item.requestedQuantity.toString(),
       approvedQuantity: item.approvedQuantity?.toString() ?? null,
       shippedQuantity: item.shippedQuantity?.toString() ?? null,
