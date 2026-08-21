@@ -7,7 +7,7 @@ import type {
   SendPushNotificationOptions,
   NotificationListParams,
 } from "../types/notification.types";
-import type { Notification } from "@prisma/client";
+import type { Prisma, Notification } from "@prisma/client";
 
 export const notificationService = {
   async registerDeviceToken(payload: RegisterDeviceTokenPayload): Promise<void> {
@@ -27,13 +27,13 @@ export const notificationService = {
     if (userIds.length === 0) return;
 
     // 1. Create DB notifications for all target users
-    const dbRecords = userIds.map((userId) => ({
+    const dbRecords: Prisma.NotificationUncheckedCreateInput[] = userIds.map((userId) => ({
       tenantId,
       userId,
       title,
       message,
       type,
-      data: data as Record<string, unknown>,
+      data: (data as Prisma.InputJsonValue) ?? undefined,
       isRead: false,
     }));
     await notificationRepository.createManyNotifications(dbRecords);
@@ -47,12 +47,15 @@ export const notificationService = {
     if (!messaging) return; // Credentials not set, skip FCM dispatch safely
 
     try {
+      // Deliberately data-only (no top-level `notification` block): Android only
+      // invokes the app's onMessageReceived — which is what builds the correct
+      // notification channel and the deep-link PendingIntent — for data-only
+      // messages or while the app is foregrounded. A "notification + data"
+      // message instead gets auto-rendered by the OS whenever the app is
+      // backgrounded or killed, using the manifest's default channel and a
+      // generic tap intent with none of our deep-link extras attached.
       const response = await messaging.sendEachForMulticast({
         tokens: fcmTokens,
-        notification: {
-          title,
-          body: message,
-        },
         data: {
           title,
           message,
@@ -61,10 +64,6 @@ export const notificationService = {
         },
         android: {
           priority: "high",
-          notification: {
-            sound: "default",
-            clickAction: "FLUTTER_NOTIFICATION_CLICK",
-          },
         },
       });
 

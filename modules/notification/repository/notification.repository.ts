@@ -102,11 +102,11 @@ export const notificationRepository = {
   async findManyByTenantAndUser(params: {
     tenantId: bigint;
     userId: bigint;
-    page: number;
-    pageSize: number;
+    page?: number;
+    pageSize?: number;
     unreadOnly?: boolean;
   }) {
-    const { tenantId, userId, page, pageSize, unreadOnly } = params;
+    const { tenantId, userId, page = 1, pageSize = 20, unreadOnly } = params;
     const where: Prisma.NotificationWhereInput = {
       tenantId,
       userId,
