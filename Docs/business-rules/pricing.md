@@ -70,6 +70,8 @@ candidate `PriceList`s and pick the **most specific match**, in this order
 4. customerGroupId match       (any store, this customer's group)
 ```
 
+Within each tier, price lists are evaluated in **newest-first order** (`createdAt: "desc"`), so newly created price lists override older ones for any configured product line items. If the newest list in a tier does not contain the target product item, the resolution algorithm falls through to older price lists in the same tier before moving to the next tier.
+
 **No tenant-wide default tier.** A product with nothing configured at any
 of tiers 1–4 has no price — `resolve()` returns null (surfaced as
 `RESOURCE_NOT_FOUND` by `resolvePrice`, or a hard rejection at sale

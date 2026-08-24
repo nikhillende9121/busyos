@@ -37,9 +37,9 @@ async function main() {
   await notificationService.sendToUsers({
     tenantId: user.tenantId,
     userIds: [user.id],
-    title: "🔔 Targeted Notification",
-    message: `Hello ${user.name || "User"}, this is a targeted notification sent directly to shop1@pista.com!`,
-    type: "TARGETED_ALERT",
+    title: "🎉 Welcome Onboard",
+    message: "Welcome onboard!",
+    type: "WELCOME",
     data: {
       recipientEmail: user.email,
       timestamp: new Date().toISOString(),
