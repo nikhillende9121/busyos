@@ -199,6 +199,26 @@ export const stockTransferService = {
       return { ...newTransfer, items };
     });
 
+    // Notify both origin and destination warehouse staff that stock transfer was approved
+    Promise.all([
+      notificationService.sendToWarehouse({
+        tenantId: dto.tenantId,
+        warehouseId: dto.fromWarehouseId,
+        title: "Stock Transfer Approved",
+        message: `Stock transfer #${updated.id.toString()} has been approved for fulfillment from your warehouse.`,
+        type: "STOCK_TRANSFER",
+        data: { entityId: updated.id.toString(), route: "STOCK_TRANSFER_DETAIL" },
+      }),
+      notificationService.sendToWarehouse({
+        tenantId: dto.tenantId,
+        warehouseId: transfer.toWarehouseId,
+        title: "Stock Transfer Approved",
+        message: `Stock transfer #${updated.id.toString()} targeting your warehouse has been approved.`,
+        type: "STOCK_TRANSFER",
+        data: { entityId: updated.id.toString(), route: "STOCK_TRANSFER_DETAIL" },
+      }),
+    ]).catch((err) => console.error("Failed to send stock transfer approve notifications:", err));
+
     return toStockTransferView(updated);
   },
 

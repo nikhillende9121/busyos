@@ -240,6 +240,11 @@ GET  /warehouses                 WAREHOUSE.VIEW
 GET  /warehouses/{id}             WAREHOUSE.VIEW
 ```
 
+**Products** (for purchase creation & catalog browsing)
+```
+GET  /products?all=true          PRODUCT.VIEW   (bypasses store price-list restriction to list all catalog products for purchase creation)
+```
+
 `sales`/`purchases`/`inventory` (including stock transfers, which live
 under the inventory feature) are also gated by the tenant's enabled
 **features** (`SALES`, `PURCHASE`, `INVENTORY`) — feature and permission

@@ -35,6 +35,7 @@ vi.mock("@/modules/notification/service/notification.service", () => ({
 import { stockTransferRepository } from "../repository/stock-transfer.repository";
 import { inventoryService } from "../service/inventory.service";
 import { stockTransferService } from "../service/stock-transfer.service";
+import { notificationService } from "@/modules/notification/service/notification.service";
 
 function transferRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -237,6 +238,12 @@ describe("stockTransferService.approve", () => {
       fromWarehouseId: 10n,
     });
     expect(inventoryService.recordMovement).not.toHaveBeenCalled();
+    expect(notificationService.sendToWarehouse).toHaveBeenCalledWith(
+      expect.objectContaining({ warehouseId: 10n, title: "Stock Transfer Approved" }),
+    );
+    expect(notificationService.sendToWarehouse).toHaveBeenCalledWith(
+      expect.objectContaining({ warehouseId: 20n, title: "Stock Transfer Approved" }),
+    );
   });
 });
 

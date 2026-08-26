@@ -34,5 +34,7 @@ export const listProductsQuerySchema = z.object({
   // products priced for this warehouse are returned — see
   // modules/product/service/product.service.ts's list().
   warehouseId: optionalIdString,
+  // When true, bypasses warehouse price-list scoping (e.g. for purchase creation)
+  all: z.coerce.boolean().optional(),
 });
 export type ListProductsQuery = z.infer<typeof listProductsQuerySchema>;

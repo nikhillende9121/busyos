@@ -113,6 +113,27 @@ describe("productService.list", () => {
     expect(priceListService.findPricedProductIds).toHaveBeenCalledWith(1n, 10n);
   });
 
+  it("bypasses price-list warehouse scope filtering when all is true", async () => {
+    vi.mocked(productRepository.findManyByTenant).mockResolvedValue([productRow()] as never);
+    vi.mocked(productRepository.countByTenant).mockResolvedValue(1);
+
+    await productService.list({
+      tenantId: 1n,
+      page: 1,
+      pageSize: 20,
+      sortBy: "name",
+      sortDir: "asc",
+      scopedWarehouseId: 10n,
+      all: true,
+    });
+
+    expect(priceListService.findPricedProductIds).not.toHaveBeenCalled();
+    expect(productRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ productIds: undefined }),
+    );
+  });
+
   it("rejects a scoped caller requesting a different warehouse's pricing view", async () => {
     await expect(
       productService.list({

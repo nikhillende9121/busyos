@@ -45,8 +45,8 @@ export default function StorePurchasesPage() {
     queryFn: () => apiClient.get<SupplierView[]>("/suppliers"),
   });
   const { data: products } = useQuery({
-    queryKey: queryKeys.list("products", { pageSize: 100 }),
-    queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),
+    queryKey: queryKeys.list("products", { pageSize: 100, all: true }),
+    queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100, all: true }),
   });
   const { data: extraCharges } = useQuery({
     queryKey: queryKeys.list("extra-charges"),

@@ -36,7 +36,7 @@ export const categoryController = {
       const category = await categoryService.create({
         tenantId: auth.tenantId,
         name: input.name,
-        parentId: input.parentId ? BigInt(input.parentId) : undefined,
+        parentId: input.parentId ? BigInt(input.parentId) : input.parentId === null ? null : undefined,
       });
       return successResponse(category, "Category created", 201);
     } catch (error) {
@@ -53,7 +53,7 @@ export const categoryController = {
         tenantId: auth.tenantId,
         categoryId: BigInt(id),
         name: input.name,
-        parentId: input.parentId ? BigInt(input.parentId) : undefined,
+        parentId: input.parentId ? BigInt(input.parentId) : input.parentId === null ? null : undefined,
       });
       return successResponse(category, "Category updated");
     } catch (error) {

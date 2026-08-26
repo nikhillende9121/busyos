@@ -56,6 +56,21 @@ describe("categoryService.create", () => {
 
     expect(categoryRepository.create).not.toHaveBeenCalled();
   });
+
+  it("creates a category without a parentId cleanly", async () => {
+    vi.mocked(categoryRepository.create).mockResolvedValue(categoryRow({ name: "Beverages", parentId: null }) as never);
+
+    const result = await categoryService.create({ tenantId: 1n, name: "Beverages", parentId: null });
+
+    expect(result.name).toBe("Beverages");
+    expect(result.parentId).toBeNull();
+    expect(categoryRepository.findByIdForTenant).not.toHaveBeenCalled();
+    expect(categoryRepository.create).toHaveBeenCalledWith({
+      tenantId: 1n,
+      name: "Beverages",
+      parentId: null,
+    });
+  });
 });
 
 describe("categoryService.update", () => {

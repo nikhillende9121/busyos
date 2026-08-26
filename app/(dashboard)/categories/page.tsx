@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useForm, type FieldValues, type DefaultValues } from "react-hook-form";
+import { useForm, Controller, type FieldValues, type DefaultValues } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ import { Plus, Pencil, Trash2, ImageOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
 import { ConfirmDialog } from "@/components/resource/confirm-dialog";
@@ -131,6 +132,7 @@ export default function CategoriesPage() {
           title="New category"
           schema={createCategorySchema}
           defaultValues={{ name: "", parentId: undefined }}
+          categories={categories ?? []}
           onSubmit={(values) => createMutation.mutateAsync(values as CreateCategoryInput)}
           onImageChanged={invalidate}
         />
@@ -144,6 +146,7 @@ export default function CategoriesPage() {
           schema={updateCategorySchema}
           defaultValues={{ name: editing.name, parentId: editing.parentId ?? undefined }}
           category={editing}
+          categories={categories ?? []}
           onSubmit={(values) =>
             updateMutation.mutateAsync({ id: editing.id, values: values as UpdateCategoryInput })
           }
@@ -180,6 +183,7 @@ function CategoryFormDialog({
   schema,
   defaultValues,
   category,
+  categories = [],
   onSubmit,
   onImageChanged,
 }: {
@@ -194,6 +198,7 @@ function CategoryFormDialog({
   schema: ZodType<FieldValues>;
   defaultValues: CategoryFormValues;
   category?: CategoryView;
+  categories?: CategoryView[];
   onSubmit: (values: CategoryFormValues) => Promise<CategoryView>;
   onImageChanged: () => void;
 }) {
@@ -250,6 +255,8 @@ function CategoryFormDialog({
     }
   };
 
+  const parentOptions = categories.filter((c) => c.id !== category?.id);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -262,10 +269,31 @@ function CategoryFormDialog({
             <Input id="name" placeholder="Grocery" {...form.register("name")} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="parentId">Parent category ID</Label>
-            <Input id="parentId" placeholder="optional" {...form.register("parentId")} />
+            <Label htmlFor="parentId">Parent category</Label>
+            <Controller
+              control={form.control}
+              name="parentId"
+              render={({ field }) => (
+                <Select
+                  value={field.value || "__none__"}
+                  onValueChange={(val) => field.onChange(val === "__none__" ? "" : val)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="None (Top-level category)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None (Top-level category)</SelectItem>
+                    {parentOptions.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
             <p className="text-xs text-muted-foreground">
-              Numeric ID of a parent category, if this is a sub-category.
+              Optional parent category if this is a sub-category.
             </p>
           </div>
 

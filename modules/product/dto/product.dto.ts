@@ -44,4 +44,6 @@ export type ProductListDto = {
   // -> Warehouse-Scoped Users), not business data — null/omitted means
   // unrestricted.
   scopedWarehouseId?: bigint | null;
+  // When true, bypasses warehouse price-list scoping (e.g. for purchase creation)
+  all?: boolean;
 };

@@ -21,7 +21,7 @@ export const productService = {
     if (filter.warehouseId !== undefined) {
       assertWarehouseAccess({ warehouseId: scopedWarehouseId }, filter.warehouseId);
     }
-    const effectiveWarehouseId = filter.warehouseId ?? scopedWarehouseId ?? undefined;
+    const effectiveWarehouseId = filter.all ? undefined : (filter.warehouseId ?? scopedWarehouseId ?? undefined);
     const productIds =
       effectiveWarehouseId !== undefined
         ? await priceListService.findPricedProductIds(filter.tenantId, effectiveWarehouseId)

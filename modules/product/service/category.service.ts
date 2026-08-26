@@ -26,13 +26,13 @@ export const categoryService = {
   },
 
   async create(dto: CreateCategoryDto): Promise<CategoryView> {
-    if (dto.parentId !== undefined) {
+    if (dto.parentId !== undefined && dto.parentId !== null) {
       await assertParentBelongsToTenant(dto.tenantId, dto.parentId);
     }
     const category = await categoryRepository.create({
       tenantId: dto.tenantId,
       name: dto.name,
-      parentId: dto.parentId,
+      parentId: dto.parentId ?? null,
     });
     return toCategoryView(category);
   },
@@ -43,7 +43,7 @@ export const categoryService = {
       throw new AppError("RESOURCE_NOT_FOUND", "Category not found");
     }
 
-    if (dto.parentId !== undefined) {
+    if (dto.parentId !== undefined && dto.parentId !== null) {
       if (dto.parentId === dto.categoryId) {
         throw new AppError("VALIDATION_ERROR", "A category cannot be its own parent");
       }

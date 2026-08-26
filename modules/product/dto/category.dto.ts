@@ -1,14 +1,14 @@
 export type CreateCategoryDto = {
   tenantId: bigint;
   name: string;
-  parentId?: bigint;
+  parentId?: bigint | null;
 };
 
 export type UpdateCategoryDto = {
   tenantId: bigint;
   categoryId: bigint;
   name?: string;
-  parentId?: bigint;
+  parentId?: bigint | null;
 };
 
 export type UploadCategoryImageDto = {
