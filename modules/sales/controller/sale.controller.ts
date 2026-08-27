@@ -42,7 +42,7 @@ export const saleController = {
       const input = createSaleSchema.parse(body);
       const sale = await saleService.create({
         tenantId: auth.tenantId,
-        customerId: BigInt(input.customerId),
+        customerId: input.customerId ? BigInt(input.customerId) : undefined,
         warehouseId: BigInt(input.warehouseId),
         channel: input.channel,
         saleDate: input.saleDate,

@@ -87,7 +87,7 @@ export default function StoreSalesPage() {
     queryFn: () => apiClient.get<ExtraChargeView[]>("/extra-charges"),
   });
 
-  const customerName = (id: string) => customers?.find((c) => c.id === id)?.name ?? id;
+  const customerName = (id: string | null) => (id ? (customers?.find((c) => c.id === id)?.name ?? id) : "—");
 
   if (mode === "checkout") {
     return (
@@ -248,8 +248,11 @@ function CheckoutScreen({
     },
   });
 
+  const { hasFeature } = useAuth();
+  const isCustomerFeatureEnabled = hasFeature("CUSTOMER");
+
   const handleCharge = async () => {
-    if (!customerId) {
+    if (isCustomerFeatureEnabled && !customerId) {
       toast.error("Select a customer first.");
       return;
     }
@@ -265,7 +268,7 @@ function CheckoutScreen({
 
     try {
       await createMutation.mutateAsync({
-        customerId,
+        customerId: customerId || undefined,
         warehouseId,
         channel: "POS",
         saleDate: new Date().toISOString().slice(0, 10),
@@ -348,10 +351,10 @@ function CheckoutScreen({
       {/* Cart */}
       <div className="flex w-full flex-col gap-3 rounded-xl border bg-card p-4 lg:w-96">
         <div className="space-y-1.5">
-          <Label>Customer</Label>
+          <Label>Customer {isCustomerFeatureEnabled ? "" : "(optional)"}</Label>
           <Select value={customerId} onValueChange={(value) => setCustomerId(value ?? "")}>
             <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select customer" />
+              <SelectValue placeholder={isCustomerFeatureEnabled ? "Select customer" : "Select customer (optional)"} />
             </SelectTrigger>
             <SelectContent>
               {customers.map((c) => (

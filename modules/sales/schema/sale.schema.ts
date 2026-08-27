@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { idString } from "@/shared/validation/id";
+import { idString, optionalIdString } from "@/shared/validation/id";
 import { positiveDecimalString } from "@/shared/validation/decimal";
 
 export const createSaleSchema = z.object({
-  customerId: idString,
+  customerId: optionalIdString,
   warehouseId: idString,
   channel: z.enum(["POS", "ONLINE", "MARKETPLACE", "PHONE"]).default("POS"),
   saleDate: z.coerce.date(),

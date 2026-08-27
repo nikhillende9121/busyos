@@ -91,7 +91,7 @@ export default function StoreSaleDetailPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold font-heading">Sale #{sale.id}</h1>
-          <p className="text-muted-foreground">{customers?.find((c) => c.id === sale.customerId)?.name ?? sale.customerId}</p>
+          <p className="text-muted-foreground">{sale.customerId ? (customers?.find((c) => c.id === sale.customerId)?.name ?? sale.customerId) : "No Customer"}</p>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline">{sale.channel}</Badge>

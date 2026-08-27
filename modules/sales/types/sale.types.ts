@@ -40,7 +40,7 @@ export type SaleChargeView = {
 export type SaleView = {
   id: string;
   saleNumber?: string;
-  customerId: string;
+  customerId: string | null;
   customerName?: string | null;
   customerPhone?: string | null;
   customerEmail?: string | null;

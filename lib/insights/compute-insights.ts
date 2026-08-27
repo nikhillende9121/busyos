@@ -100,7 +100,7 @@ export function buildDashboardInsights(input: DashboardInsightsInput): Dashboard
 
   const productName = (id: string) => input.products.items.find((p) => p.id === id)?.name ?? id;
   const warehouseName = (id: string) => input.warehouses.find((w) => w.id === id)?.name ?? id;
-  const customerName = (id: string) => input.customers.find((c) => c.id === id)?.name ?? id;
+  const customerName = (id: string | null) => (id ? input.customers.find((c) => c.id === id)?.name ?? id : "N/A");
   const supplierName = (id: string) => input.suppliers.find((s) => s.id === id)?.name ?? id;
 
   const revenueSales = input.sales.filter((sale) => REVENUE_SALE_STATUSES.has(sale.status));

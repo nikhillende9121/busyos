@@ -9,6 +9,7 @@ import { taxService } from "@/modules/pricing/service/tax.service";
 import type { TaxContext } from "@/modules/pricing/types/tax.types";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
+import { rbacLookup } from "@/shared/middleware/rbac-lookup";
 import type { CreateSaleDto, SaleListDto } from "../dto/sale.dto";
 import type { SaleView } from "../types/sale.types";
 
@@ -74,10 +75,23 @@ export const saleService = {
   async create(dto: CreateSaleDto): Promise<SaleView> {
     assertWarehouseAccess({ warehouseId: dto.scopedWarehouseId ?? null }, dto.warehouseId);
 
-    const customer = await saleRepository.findCustomerForTenant(dto.tenantId, dto.customerId);
-    if (!customer) {
-      throw new AppError("VALIDATION_ERROR", "customerId does not belong to this tenant");
+    const isCustomerFeatureEnabled = await rbacLookup.isFeatureEnabledForTenant(dto.tenantId, "CUSTOMER");
+    let customer: Customer | null = null;
+    if (isCustomerFeatureEnabled) {
+      if (!dto.customerId) {
+        throw new AppError("VALIDATION_ERROR", "Customer is required when customer feature is enabled in your plan");
+      }
+      customer = await saleRepository.findCustomerForTenant(dto.tenantId, dto.customerId);
+      if (!customer) {
+        throw new AppError("VALIDATION_ERROR", "customerId does not belong to this tenant");
+      }
+    } else if (dto.customerId) {
+      customer = await saleRepository.findCustomerForTenant(dto.tenantId, dto.customerId);
+      if (!customer) {
+        throw new AppError("VALIDATION_ERROR", "customerId does not belong to this tenant");
+      }
     }
+
     const warehouse = await saleRepository.findWarehouseForTenant(dto.tenantId, dto.warehouseId);
     if (!warehouse) {
       throw new AppError("VALIDATION_ERROR", "warehouseId does not belong to this tenant");
@@ -101,8 +115,8 @@ export const saleService = {
           productId: item.productId,
           warehouseId: dto.warehouseId,
           quantity: item.quantity,
-          customerGroupId: customer.customerGroupId ?? undefined,
-          customerId: dto.customerId,
+          customerGroupId: customer?.customerGroupId ?? undefined,
+          customerId: dto.customerId ?? undefined,
         }),
       );
     }
@@ -112,8 +126,8 @@ export const saleService = {
     const quote = await promotionService.quote({
       tenantId: dto.tenantId,
       warehouseId: dto.warehouseId,
-      customerId: dto.customerId,
-      customerGroupId: customer.customerGroupId ?? undefined,
+      customerId: dto.customerId ?? undefined,
+      customerGroupId: customer?.customerGroupId ?? undefined,
       couponCode: dto.couponCode,
       lines: dto.items.map((item, index) => ({
         productId: item.productId,
@@ -130,7 +144,7 @@ export const saleService = {
     const taxContext = await taxService.resolveContext({
       tenantId: dto.tenantId,
       warehouseId: dto.warehouseId,
-      customerId: dto.customerId,
+      customerId: dto.customerId ?? undefined,
       taxInclusivePricing: dto.taxInclusive,
     });
     const lineTaxResults = await taxService.computeLinesTax(
@@ -145,7 +159,7 @@ export const saleService = {
       const status = initialStatus(dto.channel);
       const created = await saleRepository.create(tx, {
         tenantId: dto.tenantId,
-        customerId: dto.customerId,
+        customerId: dto.customerId ?? null,
         warehouseId: dto.warehouseId,
         channel: dto.channel,
         status,
@@ -180,7 +194,7 @@ export const saleService = {
       await promotionService.applyQuoteToSale(tx, {
         tenantId: dto.tenantId,
         saleId: created.id,
-        customerId: dto.customerId,
+        customerId: dto.customerId ?? undefined,
         quote,
         saleItemIdByProductId,
       });
@@ -566,7 +580,7 @@ export function toSaleView(
   return {
     id: sale.id.toString(),
     saleNumber,
-    customerId: sale.customerId.toString(),
+    customerId: sale.customerId ? sale.customerId.toString() : null,
     customerName,
     customerPhone,
     customerEmail,

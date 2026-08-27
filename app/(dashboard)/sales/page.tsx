@@ -39,7 +39,8 @@ type Row = SaleView & { customerName: string; warehouseName: string };
 
 export default function SalesPage() {
   const queryClient = useQueryClient();
-  const { can } = useAuth();
+  const { can, hasFeature } = useAuth();
+  const isCustomerFeatureEnabled = hasFeature("CUSTOMER");
   const [createOpen, setCreateOpen] = useState(false);
 
   const { data: sales, isLoading } = useQuery({
@@ -49,6 +50,7 @@ export default function SalesPage() {
   const { data: customers } = useQuery({
     queryKey: queryKeys.list("customers"),
     queryFn: () => apiClient.get<CustomerView[]>("/customers"),
+    enabled: isCustomerFeatureEnabled,
   });
   const { data: warehouses } = useQuery({
     queryKey: queryKeys.list("warehouses"),
@@ -63,7 +65,7 @@ export default function SalesPage() {
     queryFn: () => apiClient.get<ExtraChargeView[]>("/extra-charges"),
   });
 
-  const customerName = (id: string) => customers?.find((c) => c.id === id)?.name ?? id;
+  const customerName = (id: string | null) => (id ? (customers?.find((c) => c.id === id)?.name ?? id) : "—");
   const warehouseName = (id: string) => warehouses?.find((w) => w.id === id)?.name ?? id;
   const productOptions = (products?.items ?? []).map((p) => ({ label: `${p.sku} — ${p.name}`, value: p.id }));
 
@@ -115,8 +117,16 @@ export default function SalesPage() {
   });
 
   const onSubmit = async (values: FieldValues) => {
+    if (isCustomerFeatureEnabled && !values.customerId) {
+      form.setError("customerId", { type: "manual", message: "Customer is required when customer feature is enabled in your plan" });
+      return;
+    }
     try {
-      const payload = { ...values, couponCode: values.couponCode || undefined };
+      const payload = {
+        ...values,
+        customerId: values.customerId || undefined,
+        couponCode: values.couponCode || undefined,
+      };
       await createMutation.mutateAsync(payload);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
@@ -147,14 +157,14 @@ export default function SalesPage() {
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Customer</Label>
+                <Label>Customer {isCustomerFeatureEnabled ? "" : "(optional)"}</Label>
                 <Controller
                   control={form.control}
                   name="customerId"
                   render={({ field }) => (
                     <Select value={field.value ?? ""} onValueChange={field.onChange}>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select customer" />
+                        <SelectValue placeholder={isCustomerFeatureEnabled ? "Select customer" : "Select customer (optional)"} />
                       </SelectTrigger>
                       <SelectContent>
                         {(customers ?? []).map((c) => (
@@ -166,6 +176,9 @@ export default function SalesPage() {
                     </Select>
                   )}
                 />
+                {form.formState.errors.customerId && (
+                  <p className="text-xs text-destructive">{String(form.formState.errors.customerId.message)}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>Warehouse</Label>

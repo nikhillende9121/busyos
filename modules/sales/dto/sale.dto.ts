@@ -7,7 +7,7 @@ export type CreateSaleItemDto = {
 
 export type CreateSaleDto = {
   tenantId: bigint;
-  customerId: bigint;
+  customerId?: bigint | null;
   warehouseId: bigint;
   channel: SaleChannel;
   saleDate: Date;

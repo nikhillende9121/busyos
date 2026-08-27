@@ -53,11 +53,18 @@ vi.mock("@/modules/pricing/service/tax.service", () => ({
   },
 }));
 
+vi.mock("@/shared/middleware/rbac-lookup", () => ({
+  rbacLookup: {
+    isFeatureEnabledForTenant: vi.fn(),
+  },
+}));
+
 import { saleRepository } from "../repository/sale.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
 import { promotionService } from "@/modules/pricing/service/promotion.service";
 import { priceListService } from "@/modules/pricing/service/price-list.service";
 import { taxService } from "@/modules/pricing/service/tax.service";
+import { rbacLookup } from "@/shared/middleware/rbac-lookup";
 import { saleService } from "../service/sale.service";
 
 const DEFAULT_TAX_CONTEXT = { isIntraState: true, taxInclusivePricing: false, defaultTaxRateId: null };
@@ -105,6 +112,7 @@ function saleRow(overrides: Partial<Record<string, unknown>> = {}) {
 describe("saleService — warehouse scoping", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(rbacLookup.isFeatureEnabledForTenant).mockResolvedValue(true);
     vi.mocked(saleRepository.findCustomerForTenant).mockResolvedValue({
       id: 30n,
       customerGroupId: null,
@@ -291,6 +299,45 @@ describe("saleService.create", () => {
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
 
     expect(saleRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects creation when customer feature is enabled and customerId is missing", async () => {
+    vi.mocked(rbacLookup.isFeatureEnabledForTenant).mockResolvedValue(true);
+
+    await expect(
+      saleService.create({
+        tenantId: 1n,
+        warehouseId: 10n,
+        channel: "POS",
+        saleDate: new Date(),
+        items: [{ productId: 100n, quantity: "2" }],
+      }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: "Customer is required when customer feature is enabled in your plan",
+    });
+
+    expect(saleRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("allows creation without customerId when customer feature is NOT enabled", async () => {
+    vi.mocked(rbacLookup.isFeatureEnabledForTenant).mockResolvedValue(false);
+    vi.mocked(saleRepository.create).mockResolvedValue(saleRow({ customerId: null }) as never);
+    vi.mocked(saleRepository.findByIdTx).mockResolvedValue(saleRow({ customerId: null }) as never);
+
+    const sale = await saleService.create({
+      tenantId: 1n,
+      warehouseId: 10n,
+      channel: "POS",
+      saleDate: new Date(),
+      items: [{ productId: 100n, quantity: "2" }],
+    });
+
+    expect(sale.customerId).toBeNull();
+    expect(saleRepository.create).toHaveBeenCalledWith(
+      "sale-tx",
+      expect.objectContaining({ customerId: null }),
+    );
   });
 
   it("passes the coupon code and the customer's group through to the quote, and applies the result inside the transaction", async () => {

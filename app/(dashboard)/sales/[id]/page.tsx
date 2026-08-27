@@ -101,7 +101,7 @@ export default function SaleDetailPage() {
         <div>
           <h1 className="text-2xl font-semibold font-heading">Sale #{sale.id}</h1>
           <p className="text-muted-foreground">
-            {customers?.find((c) => c.id === sale.customerId)?.name ?? sale.customerId} —{" "}
+            {sale.customerId ? (customers?.find((c) => c.id === sale.customerId)?.name ?? sale.customerId) : "No Customer"} —{" "}
             {warehouses?.find((w) => w.id === sale.warehouseId)?.name ?? sale.warehouseId}
           </p>
         </div>

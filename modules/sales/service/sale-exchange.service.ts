@@ -72,7 +72,9 @@ export const saleExchangeService = {
     });
 
     // --- Price the replacement side, same pipeline as a normal new Sale ---
-    const customer = await saleRepository.findCustomerForTenant(dto.tenantId, originalSale.customerId);
+    const customer = originalSale.customerId
+      ? await saleRepository.findCustomerForTenant(dto.tenantId, originalSale.customerId)
+      : null;
     const products = new Map<string, { categoryId: bigint | null }>();
     // Index-aligned with dto.newItems (not keyed by productId) so two lines
     // for the same product resolve and price independently.
@@ -93,7 +95,7 @@ export const saleExchangeService = {
           warehouseId: originalSale.warehouseId,
           quantity: newItem.quantity,
           customerGroupId: customer?.customerGroupId ?? undefined,
-          customerId: originalSale.customerId,
+          customerId: originalSale.customerId ?? undefined,
         }),
       );
     }
@@ -101,7 +103,7 @@ export const saleExchangeService = {
     const quote = await promotionService.quote({
       tenantId: dto.tenantId,
       warehouseId: originalSale.warehouseId,
-      customerId: originalSale.customerId,
+      customerId: originalSale.customerId ?? undefined,
       couponCode: dto.couponCode,
       lines: dto.newItems.map((item, index) => ({
         productId: item.productId,
@@ -114,7 +116,7 @@ export const saleExchangeService = {
     const taxContext = await taxService.resolveContext({
       tenantId: dto.tenantId,
       warehouseId: originalSale.warehouseId,
-      customerId: originalSale.customerId,
+      customerId: originalSale.customerId ?? undefined,
     });
     const lineTaxResults = await taxService.computeLinesTax(
       dto.tenantId,
@@ -181,7 +183,7 @@ export const saleExchangeService = {
       // exchange that already happened at the counter, never a DRAFT cart.
       const newSale = await saleRepository.create(tx, {
         tenantId: dto.tenantId,
-        customerId: originalSale.customerId,
+        customerId: originalSale.customerId ?? null,
         warehouseId: originalSale.warehouseId,
         channel: "POS",
         status: "COMPLETED",
@@ -230,7 +232,7 @@ export const saleExchangeService = {
       await promotionService.applyQuoteToSale(tx, {
         tenantId: dto.tenantId,
         saleId: newSale.id,
-        customerId: originalSale.customerId,
+        customerId: originalSale.customerId ?? undefined,
         quote,
         saleItemIdByProductId,
       });
