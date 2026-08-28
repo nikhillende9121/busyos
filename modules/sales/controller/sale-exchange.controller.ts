@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { createSaleExchangeSchema } from "../schema/sale-exchange.schema";
+import { createSaleExchangeSchema, quoteSaleExchangeSchema } from "../schema/sale-exchange.schema";
 import { saleExchangeService } from "../service/sale-exchange.service";
 import { successResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
@@ -51,6 +51,33 @@ export const saleExchangeController = {
         scopedWarehouseId: auth.warehouseId,
       });
       return successResponse(exchange, "Sale exchange recorded", 201);
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
+  // Read-only preview — no return leg, no replacement sale, no Payment, no
+  // coupon redemption. See INVOICE_CALCULATION_LOGIC.md.
+  async quote(request: NextRequest, auth: AuthContext) {
+    try {
+      const body = await request.json();
+      const input = quoteSaleExchangeSchema.parse(body);
+      const result = await saleExchangeService.quote({
+        tenantId: auth.tenantId,
+        saleId: BigInt(input.saleId),
+        returnItems: input.returnItems.map((item) => ({
+          saleItemId: BigInt(item.saleItemId),
+          quantity: item.quantity,
+        })),
+        newItems: input.newItems.map((item) => ({
+          productId: BigInt(item.productId),
+          quantity: item.quantity,
+        })),
+        couponCode: input.couponCode,
+        extraChargeIds: input.extraChargeIds?.map((id) => BigInt(id)),
+        scopedWarehouseId: auth.warehouseId,
+      });
+      return successResponse(result, "Sale exchange quote computed");
     } catch (error) {
       return handleRouteError(error);
     }

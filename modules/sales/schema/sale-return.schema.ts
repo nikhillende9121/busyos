@@ -15,3 +15,18 @@ export const createSaleReturnSchema = z.object({
     .min(1, "at least one item is required"),
 });
 export type CreateSaleReturnInput = z.infer<typeof createSaleReturnSchema>;
+
+// Same item shape as create, minus `reason` — a preview never persists a
+// record, so there's nothing to attach a reason to yet.
+export const quoteSaleReturnSchema = z.object({
+  saleId: idString,
+  items: z
+    .array(
+      z.object({
+        saleItemId: idString,
+        quantity: positiveDecimalString,
+      }),
+    )
+    .min(1, "at least one item is required"),
+});
+export type QuoteSaleReturnInput = z.infer<typeof quoteSaleReturnSchema>;

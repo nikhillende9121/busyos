@@ -64,3 +64,13 @@ Effective line total is clamped at zero before dividing — a line whose
 discounts summed to more than its subtotal (shouldn't happen given the
 discount engine's own per-line caps, but defended against here too) refunds
 nothing further rather than computing a negative unit price.
+
+## Preview Endpoint
+
+`POST /sale-returns/quote` computes the same per-item/total refund as
+`POST /sale-returns` without persisting anything — no `SaleReturn` row, no
+inventory movement, no `returnedQuantity` update. Both share the same
+validation and proration logic (`resolveReturnLines` in
+`sale-return.service.ts`), so the previewed number and what actually gets
+recorded on `create()` can never disagree. Gated by `SALE_RETURN.VIEW`
+(read-only), not `SALE_RETURN.CREATE`.

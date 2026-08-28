@@ -17,3 +17,11 @@ export type SaleReturnView = {
   totalRefundAmount: string;
   createdAt: string;
 };
+
+// The read-only preview of what POST /sale-returns would compute — same
+// per-item/total shape, minus the fields that only exist once a record is
+// actually persisted (id, reason, createdAt).
+export type SaleReturnQuoteView = {
+  items: { saleItemId: string; productId: string; quantity: string; refundAmount: string }[];
+  totalRefundAmount: string;
+};

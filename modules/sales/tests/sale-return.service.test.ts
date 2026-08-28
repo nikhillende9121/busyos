@@ -250,3 +250,55 @@ describe("saleReturnService.create", () => {
     ).resolves.toMatchObject({ saleId: "800" });
   });
 });
+
+describe("saleReturnService.quote", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("computes the same refund as create(), without writing anything", async () => {
+    vi.mocked(saleReturnRepository.findSaleForTenant).mockResolvedValue(
+      saleRow({ discounts: [{ saleItemId: 900n, amount: new Prisma.Decimal("240") }] }) as never,
+    );
+
+    const result = await saleReturnService.quote({
+      tenantId: 1n,
+      saleId: 800n,
+      items: [{ saleItemId: 900n, quantity: "5" }],
+    });
+
+    expect(result).toEqual({
+      items: [{ saleItemId: "900", productId: "100", quantity: "5", refundAmount: "360" }],
+      totalRefundAmount: "360",
+    });
+    expect(saleReturnRepository.create).not.toHaveBeenCalled();
+    expect(saleReturnRepository.createItem).not.toHaveBeenCalled();
+    expect(saleReturnRepository.updateItemReturnedQuantity).not.toHaveBeenCalled();
+    expect(inventoryService.recordMovement).not.toHaveBeenCalled();
+  });
+
+  it("rejects returning more than was sold on the line, same as create()", async () => {
+    vi.mocked(saleReturnRepository.findSaleForTenant).mockResolvedValue(saleRow() as never);
+
+    await expect(
+      saleReturnService.quote({
+        tenantId: 1n,
+        saleId: 800n,
+        items: [{ saleItemId: 900n, quantity: "31" }],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects a quote outside the caller's scoped warehouse", async () => {
+    vi.mocked(saleReturnRepository.findSaleForTenant).mockResolvedValue(saleRow({ warehouseId: 10n }) as never);
+
+    await expect(
+      saleReturnService.quote({
+        tenantId: 1n,
+        saleId: 800n,
+        items: [{ saleItemId: 900n, quantity: "5" }],
+        scopedWarehouseId: 999n,
+      }),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+});

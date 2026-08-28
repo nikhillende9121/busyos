@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { createSaleReturnSchema } from "../schema/sale-return.schema";
+import { createSaleReturnSchema, quoteSaleReturnSchema } from "../schema/sale-return.schema";
 import { saleReturnService } from "../service/sale-return.service";
 import { successResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
@@ -46,6 +46,27 @@ export const saleReturnController = {
         scopedWarehouseId: auth.warehouseId,
       });
       return successResponse(saleReturn, "Sale return recorded", 201);
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
+  // Read-only preview — no record is created, no inventory or coupon
+  // side-effects. See INVOICE_CALCULATION_LOGIC.md.
+  async quote(request: NextRequest, auth: AuthContext) {
+    try {
+      const body = await request.json();
+      const input = quoteSaleReturnSchema.parse(body);
+      const result = await saleReturnService.quote({
+        tenantId: auth.tenantId,
+        saleId: BigInt(input.saleId),
+        items: input.items.map((item) => ({
+          saleItemId: BigInt(item.saleItemId),
+          quantity: item.quantity,
+        })),
+        scopedWarehouseId: auth.warehouseId,
+      });
+      return successResponse(result, "Sale return quote computed");
     } catch (error) {
       return handleRouteError(error);
     }

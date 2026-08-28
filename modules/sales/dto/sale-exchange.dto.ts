@@ -27,3 +27,13 @@ export type CreateSaleExchangeDto = {
   // -> Warehouse-Scoped Users), not business data.
   scopedWarehouseId?: bigint | null;
 };
+
+export type QuoteSaleExchangeDto = {
+  tenantId: bigint;
+  saleId: bigint;
+  returnItems: CreateSaleExchangeReturnItemDto[];
+  newItems: CreateSaleExchangeNewItemDto[];
+  couponCode?: string;
+  extraChargeIds?: bigint[];
+  scopedWarehouseId?: bigint | null;
+};

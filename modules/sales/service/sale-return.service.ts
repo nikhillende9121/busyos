@@ -5,8 +5,8 @@ import { saleReturnRepository } from "../repository/sale-return.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
-import type { CreateSaleReturnDto } from "../dto/sale-return.dto";
-import type { SaleReturnView } from "../types/sale-return.types";
+import type { CreateSaleReturnDto, QuoteSaleReturnDto } from "../dto/sale-return.dto";
+import type { SaleReturnView, SaleReturnQuoteView } from "../types/sale-return.types";
 
 export type ItemWithReturn = SaleReturnItem & { saleItem: SaleItem };
 
@@ -39,33 +39,7 @@ export const saleReturnService = {
   // discount-prorated refundAmount, and its returnedQuantity update all
   // commit atomically with the SaleReturnItem record.
   async create(dto: CreateSaleReturnDto): Promise<SaleReturnView> {
-    const sale = await saleReturnRepository.findSaleForTenant(dto.tenantId, dto.saleId);
-    if (!sale) {
-      throw new AppError("VALIDATION_ERROR", "saleId does not belong to this tenant");
-    }
-    assertWarehouseAccess({ warehouseId: dto.scopedWarehouseId ?? null }, sale.warehouseId);
-    if (!RETURNABLE_SALE_STATUSES.has(sale.status)) {
-      throw new AppError("VALIDATION_ERROR", `Cannot return items from a sale in status ${sale.status}`);
-    }
-
-    const itemsById = new Map(sale.items.map((item) => [item.id.toString(), item]));
-    for (const returnItem of dto.items) {
-      const item = itemsById.get(returnItem.saleItemId.toString());
-      if (!item) {
-        throw new AppError(
-          "VALIDATION_ERROR",
-          `saleItemId ${returnItem.saleItemId.toString()} does not belong to this sale`,
-        );
-      }
-      const remaining = item.quantity.sub(item.returnedQuantity);
-      const returning = new Prisma.Decimal(returnItem.quantity);
-      if (returning.greaterThan(remaining)) {
-        throw new AppError(
-          "VALIDATION_ERROR",
-          `Cannot return ${returning.toString()} for product ${item.productId.toString()} — only ${remaining.toString()} remains returnable`,
-        );
-      }
-    }
+    const { sale, lines } = await resolveReturnLines(dto);
 
     const created = await prisma.$transaction(async (tx) => {
       const saleReturn = await saleReturnRepository.create(tx, {
@@ -75,32 +49,27 @@ export const saleReturnService = {
       });
 
       const items: ItemWithReturn[] = [];
-      for (const returnItem of dto.items) {
-        const item = itemsById.get(returnItem.saleItemId.toString())!;
-        const returnQuantity = new Prisma.Decimal(returnItem.quantity);
-        const proratedUnitPrice = computeProratedRefundUnitPrice(item, sale.items, sale.discounts);
-        const refundAmount = proratedUnitPrice.mul(returnQuantity);
-
+      for (const line of lines) {
         const createdItem = await saleReturnRepository.createItem(tx, {
           saleReturnId: saleReturn.id,
-          saleItemId: item.id,
-          quantity: returnQuantity,
-          refundAmount,
+          saleItemId: line.item.id,
+          quantity: line.quantity,
+          refundAmount: line.refundAmount,
         });
 
         await saleReturnRepository.updateItemReturnedQuantity(
           tx,
-          item.id,
-          item.returnedQuantity.add(returnItem.quantity),
+          line.item.id,
+          line.item.returnedQuantity.add(line.quantity),
         );
 
         await inventoryService.recordMovement(
           {
             tenantId: dto.tenantId,
             warehouseId: sale.warehouseId,
-            productId: item.productId,
+            productId: line.item.productId,
             transactionType: "SALE_RETURN_IN",
-            quantityDelta: returnItem.quantity,
+            quantityDelta: line.quantity.toString(),
             referenceType: "SALE_RETURN",
             referenceId: saleReturn.id,
             createdBy: dto.createdBy,
@@ -108,7 +77,7 @@ export const saleReturnService = {
           tx,
         );
 
-        items.push({ ...createdItem, saleItem: item });
+        items.push({ ...createdItem, saleItem: line.item });
       }
 
       return { ...saleReturn, items };
@@ -116,7 +85,71 @@ export const saleReturnService = {
 
     return toSaleReturnView(created);
   },
+
+  // Read-only mirror of create(): same validation, same
+  // computeProratedRefundUnitPrice call per line, zero writes — see
+  // Docs/business-rules/sale-return.md -> Preview Endpoint. Sharing
+  // resolveReturnLines with create() is what guarantees this number and the
+  // eventual persisted refundAmount can never disagree.
+  async quote(dto: QuoteSaleReturnDto): Promise<SaleReturnQuoteView> {
+    const { lines } = await resolveReturnLines(dto);
+
+    const items = lines.map((line) => ({
+      saleItemId: line.item.id.toString(),
+      productId: line.item.productId.toString(),
+      quantity: line.quantity.toString(),
+      refundAmount: line.refundAmount.toString(),
+    }));
+    const totalRefundAmount = lines
+      .reduce((sum, line) => sum.add(line.refundAmount), new Prisma.Decimal(0))
+      .toString();
+
+    return { items, totalRefundAmount };
+  },
 };
+
+type ResolvedReturnLine = { item: SaleItem; quantity: Prisma.Decimal; refundAmount: Prisma.Decimal };
+
+// Shared by create() and quote(): finds+authorizes the sale, validates every
+// requested line belongs to it and doesn't exceed what's left returnable,
+// and prices each line via computeProratedRefundUnitPrice. No writes.
+async function resolveReturnLines(
+  dto: CreateSaleReturnDto | QuoteSaleReturnDto,
+): Promise<{ sale: NonNullable<Awaited<ReturnType<typeof saleReturnRepository.findSaleForTenant>>>; lines: ResolvedReturnLine[] }> {
+  const sale = await saleReturnRepository.findSaleForTenant(dto.tenantId, dto.saleId);
+  if (!sale) {
+    throw new AppError("VALIDATION_ERROR", "saleId does not belong to this tenant");
+  }
+  assertWarehouseAccess({ warehouseId: dto.scopedWarehouseId ?? null }, sale.warehouseId);
+  if (!RETURNABLE_SALE_STATUSES.has(sale.status)) {
+    throw new AppError("VALIDATION_ERROR", `Cannot return items from a sale in status ${sale.status}`);
+  }
+
+  const itemsById = new Map(sale.items.map((item) => [item.id.toString(), item]));
+  const lines: ResolvedReturnLine[] = [];
+  for (const returnItem of dto.items) {
+    const item = itemsById.get(returnItem.saleItemId.toString());
+    if (!item) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        `saleItemId ${returnItem.saleItemId.toString()} does not belong to this sale`,
+      );
+    }
+    const quantity = new Prisma.Decimal(returnItem.quantity);
+    const remaining = item.quantity.sub(item.returnedQuantity);
+    if (quantity.greaterThan(remaining)) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        `Cannot return ${quantity.toString()} for product ${item.productId.toString()} — only ${remaining.toString()} remains returnable`,
+      );
+    }
+    const proratedUnitPrice = computeProratedRefundUnitPrice(item, sale.items, sale.discounts);
+    const refundAmount = proratedUnitPrice.mul(quantity);
+    lines.push({ item, quantity, refundAmount });
+  }
+
+  return { sale, lines };
+}
 
 // Prorates the original sale's discounts onto one line, so a return
 // refunds what the customer actually paid, not the undiscounted list price

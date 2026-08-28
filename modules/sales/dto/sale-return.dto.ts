@@ -13,3 +13,10 @@ export type CreateSaleReturnDto = {
   // -> Warehouse-Scoped Users), not business data.
   scopedWarehouseId?: bigint | null;
 };
+
+export type QuoteSaleReturnDto = {
+  tenantId: bigint;
+  saleId: bigint;
+  items: CreateSaleReturnItemDto[];
+  scopedWarehouseId?: bigint | null;
+};
