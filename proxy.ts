@@ -30,6 +30,18 @@ import {
 // a Super Admin session (see shared/middleware/with-super-admin-auth.ts) —
 // dispatched purely on whether the path is under /super-admin, never mixed.
 export async function proxy(request: NextRequest) {
+  // /api/v1 polices its own auth (with-api-auth.ts) — nothing here to guard.
+  // Handled first and separately: a browser client (Flutter web, or any
+  // other web app) calls this API from a different origin than the API
+  // itself — different port at minimum — and without CORS headers the
+  // browser silently discards every response before the caller's JS ever
+  // sees it, which looks exactly like "can't connect" even though the
+  // request reached the server and got a real response. Native
+  // Android/Windows builds never hit this: CORS is a browser-only
+  // restriction.
+  if (request.nextUrl.pathname.startsWith("/api/v1")) {
+    return applyApiCors(request);
+  }
   // The public marketing landing page — never guarded. The dashboard home
   // a signed-in user actually lands on lives at /dashboard, not here.
   if (request.nextUrl.pathname === "/") {
@@ -39,6 +51,28 @@ export async function proxy(request: NextRequest) {
     return guardSuperAdminSession(request);
   }
   return guardTenantSession(request);
+}
+
+// The Origin is reflected rather than hardcoded to one allowed value: this
+// API authenticates with a bearer token the caller's own JS attaches
+// explicitly (Authorization header), not an ambient credential like a
+// cookie, so there's no CSRF-style risk in answering any origin — unlike a
+// cookie-authenticated API, where a permissive Access-Control-Allow-Origin
+// would let any site ride a logged-in user's session.
+function applyApiCors(request: NextRequest): NextResponse {
+  const origin = request.headers.get("origin");
+
+  const response =
+    request.method === "OPTIONS" ? new NextResponse(null, { status: 204 }) : NextResponse.next();
+
+  if (origin) {
+    response.headers.set("Access-Control-Allow-Origin", origin);
+    response.headers.set("Vary", "Origin");
+    response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    response.headers.set("Access-Control-Max-Age", "86400");
+  }
+  return response;
 }
 
 async function guardTenantSession(request: NextRequest) {
@@ -103,12 +137,17 @@ async function guardSuperAdminSession(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except both login pages, the API (which polices its own
-  // auth), Next.js/static assets, and the generated favicon (app/icon.tsx)
-  // — unauthenticated requests for it (e.g. the browser tab icon while on
-  // /login itself) must get the PNG, not a redirect to /login. "/" still
-  // matches this pattern (middleware runs), but proxy() itself bypasses
-  // it immediately — see the early return above — rather than trying to
-  // special-case the root path in this regex.
-  matcher: ["/((?!login|super-admin/login|api|_next/static|_next/image|favicon.ico|icon).*)"],
+  matcher: [
+    // Everything except both login pages, the API (matched separately
+    // below), Next.js/static assets, and the generated favicon
+    // (app/icon.tsx) — unauthenticated requests for it (e.g. the browser
+    // tab icon while on /login itself) must get the PNG, not a redirect to
+    // /login. "/" still matches this pattern (proxy runs), but proxy()
+    // itself bypasses it immediately — see the early return above — rather
+    // than trying to special-case the root path in this regex.
+    "/((?!login|super-admin/login|api|_next/static|_next/image|favicon.ico|icon).*)",
+    // /api/v1 itself — CORS only (see the early branch in proxy() above),
+    // never the session-guard logic below.
+    "/api/v1/:path*",
+  ],
 };

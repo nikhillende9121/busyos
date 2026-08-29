@@ -6,11 +6,14 @@ import { inventoryService } from "./inventory.service";
 import { notificationService } from "@/modules/notification/service/notification.service";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess, assertWarehouseAccessAny } from "@/shared/utils/assert-warehouse-access";
+import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import type {
   CreateStockTransferDto,
   ApproveStockTransferDto,
   ShipStockTransferDto,
   ReceiveStockTransferDto,
+  StockTransferListDto,
+  StockTransferExportDto,
 } from "../dto/stock-transfer.dto";
 import type { StockTransferView } from "../types/stock-transfer.types";
 
@@ -76,8 +79,31 @@ function resolveStageQuantities(
 }
 
 export const stockTransferService = {
-  async list(tenantId: bigint, scopedWarehouseId: bigint | null = null): Promise<StockTransferView[]> {
-    const transfers = await stockTransferRepository.findManyByTenant(tenantId, scopedWarehouseId);
+  async list(filter: StockTransferListDto): Promise<Paginated<StockTransferView>> {
+    const repoFilter = {
+      warehouseId: filter.scopedWarehouseId ?? null,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    };
+    const skip = (filter.page - 1) * filter.pageSize;
+    const [transfers, total] = await Promise.all([
+      stockTransferRepository.findManyByTenant(filter.tenantId, { ...repoFilter, skip, take: filter.pageSize }),
+      stockTransferRepository.countByTenant(filter.tenantId, repoFilter),
+    ]);
+    return {
+      items: transfers.map(toStockTransferView),
+      pagination: buildPagination(filter.page, filter.pageSize, total),
+    };
+  },
+
+  // Same filter as list(), but every matching row — no page/pageSize — for
+  // GET /stock-transfers/export.
+  async exportList(filter: StockTransferExportDto): Promise<StockTransferView[]> {
+    const transfers = await stockTransferRepository.findManyByTenant(filter.tenantId, {
+      warehouseId: filter.scopedWarehouseId ?? null,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    });
     return transfers.map(toStockTransferView);
   },
 

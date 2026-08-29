@@ -44,10 +44,11 @@ export default function PricingQuotePage() {
     queryKey: queryKeys.list("warehouses"),
     queryFn: () => apiClient.get<WarehouseView[]>("/warehouses"),
   });
-  const { data: customers } = useQuery({
-    queryKey: queryKeys.list("customers"),
-    queryFn: () => apiClient.get<CustomerView[]>("/customers"),
+  const { data: customersPage } = useQuery({
+    queryKey: queryKeys.list("customers", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<CustomerView>>("/customers", { page: 1, pageSize: 100 }),
   });
+  const customers = customersPage?.items;
   const { data: products } = useQuery({
     queryKey: queryKeys.list("products", { pageSize: 100 }),
     queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),

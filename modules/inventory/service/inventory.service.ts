@@ -7,20 +7,84 @@ import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import { productService } from "@/modules/product/service/product.service";
 import { priceListService } from "@/modules/pricing/service/price-list.service";
+import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import type { ProductView } from "@/modules/product/types/product.types";
 import type {
   BalanceFilterDto,
+  BalanceExportDto,
   CreateStockAdjustmentDto,
   RecordMovementDto,
 } from "../dto/inventory.dto";
 import type { InventoryBalanceView, StockAdjustmentView } from "../types/inventory.types";
+
+type BalanceRow = Awaited<ReturnType<typeof inventoryRepository.listBalancesByTenant>>[number];
+
+// Shared by listBalances() and exportBalances(): each row is priced/named
+// independently (no running total across rows), so enriching a page or the
+// full export works identically — just a different upstream row set.
+async function enrichBalances(tenantId: bigint, balances: BalanceRow[]): Promise<InventoryBalanceView[]> {
+  if (balances.length === 0) return [];
+
+  const productIds = [...new Set(balances.map((balance) => balance.productId.toString()))].map(BigInt);
+  const products = await productService.getManyByIds(tenantId, productIds);
+  const productById = new Map(products.map((product) => [product.id, product]));
+
+  // Price is per (warehouseId, productId) — group so a caller viewing
+  // every warehouse at once still gets each row priced against its own
+  // warehouse, not whichever warehouse happened to be resolved first.
+  const productIdsByWarehouse = new Map<string, bigint[]>();
+  for (const balance of balances) {
+    const warehouseKey = balance.warehouseId.toString();
+    const existing = productIdsByWarehouse.get(warehouseKey);
+    if (existing) {
+      existing.push(balance.productId);
+    } else {
+      productIdsByWarehouse.set(warehouseKey, [balance.productId]);
+    }
+  }
+  const priceByWarehouseAndProduct = new Map<string, string>();
+  for (const [warehouseKey, warehouseProductIds] of productIdsByWarehouse) {
+    const priceMap = await priceListService.resolveBuyOnePriceMap(tenantId, BigInt(warehouseKey), warehouseProductIds);
+    for (const [productId, price] of priceMap) {
+      priceByWarehouseAndProduct.set(`${warehouseKey}:${productId}`, price);
+    }
+  }
+
+  return balances.map((balance) => toBalanceView(balance, productById, priceByWarehouseAndProduct));
+}
 
 export const inventoryService = {
   // A scoped caller who also passes an explicit warehouseId filter must be
   // asking about their own store (assert, don't silently override); one
   // who passes none is forced to their own store rather than seeing every
   // warehouse's stock by default.
-  async listBalances(filter: BalanceFilterDto): Promise<InventoryBalanceView[]> {
+  async listBalances(filter: BalanceFilterDto): Promise<Paginated<InventoryBalanceView>> {
+    const scopedWarehouseId = filter.scopedWarehouseId ?? null;
+    if (filter.warehouseId !== undefined) {
+      assertWarehouseAccess({ warehouseId: scopedWarehouseId }, filter.warehouseId);
+    }
+    const effectiveWarehouseId = filter.warehouseId ?? scopedWarehouseId ?? undefined;
+    const repoFilter = {
+      warehouseId: effectiveWarehouseId,
+      productId: filter.productId,
+      search: filter.search,
+    };
+
+    const skip = (filter.page - 1) * filter.pageSize;
+    const [balances, total] = await Promise.all([
+      inventoryRepository.listBalancesByTenant(filter.tenantId, { ...repoFilter, skip, take: filter.pageSize }),
+      inventoryRepository.countBalancesByTenant(filter.tenantId, repoFilter),
+    ]);
+
+    return {
+      items: await enrichBalances(filter.tenantId, balances),
+      pagination: buildPagination(filter.page, filter.pageSize, total),
+    };
+  },
+
+  // Same filter as listBalances(), but every matching row — no
+  // page/pageSize — for GET /inventory/balance/export.
+  async exportBalances(filter: BalanceExportDto): Promise<InventoryBalanceView[]> {
     const scopedWarehouseId = filter.scopedWarehouseId ?? null;
     if (filter.warehouseId !== undefined) {
       assertWarehouseAccess({ warehouseId: scopedWarehouseId }, filter.warehouseId);
@@ -32,40 +96,7 @@ export const inventoryService = {
       productId: filter.productId,
       search: filter.search,
     });
-    if (balances.length === 0) return [];
-
-    const productIds = [...new Set(balances.map((balance) => balance.productId.toString()))].map(BigInt);
-    const products = await productService.getManyByIds(filter.tenantId, productIds);
-    const productById = new Map(products.map((product) => [product.id, product]));
-
-    // Price is per (warehouseId, productId) — group so a caller viewing
-    // every warehouse at once still gets each row priced against its own
-    // warehouse, not whichever warehouse happened to be resolved first.
-    const productIdsByWarehouse = new Map<string, bigint[]>();
-    for (const balance of balances) {
-      const warehouseKey = balance.warehouseId.toString();
-      const existing = productIdsByWarehouse.get(warehouseKey);
-      if (existing) {
-        existing.push(balance.productId);
-      } else {
-        productIdsByWarehouse.set(warehouseKey, [balance.productId]);
-      }
-    }
-    const priceByWarehouseAndProduct = new Map<string, string>();
-    for (const [warehouseKey, warehouseProductIds] of productIdsByWarehouse) {
-      const priceMap = await priceListService.resolveBuyOnePriceMap(
-        filter.tenantId,
-        BigInt(warehouseKey),
-        warehouseProductIds,
-      );
-      for (const [productId, price] of priceMap) {
-        priceByWarehouseAndProduct.set(`${warehouseKey}:${productId}`, price);
-      }
-    }
-
-    return balances.map((balance) =>
-      toBalanceView(balance, productById, priceByWarehouseAndProduct),
-    );
+    return enrichBalances(filter.tenantId, balances);
   },
 
   // The module's public API for moving stock — see MODULE_GUIDE.md: other

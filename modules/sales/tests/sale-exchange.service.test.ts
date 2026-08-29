@@ -30,6 +30,8 @@ vi.mock("../repository/sale.repository", () => ({
 vi.mock("../repository/sale-exchange.repository", () => ({
   saleExchangeRepository: {
     create: vi.fn(),
+    findManyByTenant: vi.fn(),
+    countByTenant: vi.fn(),
   },
 }));
 
@@ -290,5 +292,56 @@ describe("saleExchangeService.create", () => {
     ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
 
     expect(saleReturnRepository.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("saleExchangeService.list — pagination & date filter", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(saleExchangeRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(saleExchangeRepository.countByTenant).mockResolvedValue(45);
+    vi.mocked(resolveTaxInclusive).mockResolvedValue(false);
+  });
+
+  it("computes skip from page and pageSize, and returns pagination built from the count", async () => {
+    const result = await saleExchangeService.list({ tenantId: 1n, page: 3, pageSize: 20 });
+
+    expect(saleExchangeRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ skip: 40, take: 20 }),
+    );
+    expect(result.pagination).toEqual({ page: 3, pageSize: 20, total: 45, totalPages: 3 });
+  });
+
+  it("passes dateFrom/dateTo through to the repository", async () => {
+    const dateFrom = new Date("2026-01-01T00:00:00.000Z");
+    const dateTo = new Date("2026-01-31T00:00:00.000Z");
+
+    await saleExchangeService.list({ tenantId: 1n, page: 1, pageSize: 20, dateFrom, dateTo });
+
+    expect(saleExchangeRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ dateFrom, dateTo }),
+    );
+  });
+});
+
+describe("saleExchangeService.exportList", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(resolveTaxInclusive).mockResolvedValue(false);
+  });
+
+  it("fetches every matching row with no skip/take", async () => {
+    vi.mocked(saleExchangeRepository.findManyByTenant).mockResolvedValue([]);
+    const dateFrom = new Date("2026-01-01T00:00:00.000Z");
+
+    await saleExchangeService.exportList({ tenantId: 1n, dateFrom });
+
+    const callArgs = vi.mocked(saleExchangeRepository.findManyByTenant).mock.calls[0][1] as Record<string, unknown>;
+    expect(callArgs).toMatchObject({ dateFrom });
+    expect(callArgs.skip).toBeUndefined();
+    expect(callArgs.take).toBeUndefined();
+    expect(saleExchangeRepository.countByTenant).not.toHaveBeenCalled();
   });
 });

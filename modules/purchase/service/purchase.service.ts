@@ -7,9 +7,11 @@ import { taxService } from "@/modules/pricing/service/tax.service";
 import type { TaxContext } from "@/modules/pricing/types/tax.types";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
+import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import type {
   CreatePurchaseDto,
   PurchaseListDto,
+  PurchaseExportDto,
   ReceivePurchaseDto,
 } from "../dto/purchase.dto";
 import type { PurchaseView } from "../types/purchase.types";
@@ -22,10 +24,32 @@ const RECEIVABLE_STATUSES = new Set(["ORDERED", "PARTIALLY_RECEIVED"]);
 const CANCELLABLE_STATUSES = new Set(["DRAFT", "ORDERED"]);
 
 export const purchaseService = {
-  async list(filter: PurchaseListDto): Promise<PurchaseView[]> {
+  async list(filter: PurchaseListDto): Promise<Paginated<PurchaseView>> {
+    const repoFilter = {
+      status: filter.status as never,
+      warehouseId: filter.scopedWarehouseId ?? undefined,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    };
+    const skip = (filter.page - 1) * filter.pageSize;
+    const [purchases, total] = await Promise.all([
+      purchaseRepository.findManyByTenant(filter.tenantId, { ...repoFilter, skip, take: filter.pageSize }),
+      purchaseRepository.countByTenant(filter.tenantId, repoFilter),
+    ]);
+    return {
+      items: purchases.map(toPurchaseView),
+      pagination: buildPagination(filter.page, filter.pageSize, total),
+    };
+  },
+
+  // Same filter as list(), but every matching row — no page/pageSize — for
+  // GET /purchases/export.
+  async exportList(filter: PurchaseExportDto): Promise<PurchaseView[]> {
     const purchases = await purchaseRepository.findManyByTenant(filter.tenantId, {
       status: filter.status as never,
       warehouseId: filter.scopedWarehouseId ?? undefined,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
     });
     return purchases.map(toPurchaseView);
   },

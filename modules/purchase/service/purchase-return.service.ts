@@ -5,20 +5,39 @@ import { purchaseReturnRepository } from "../repository/purchase-return.reposito
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
-import type { CreatePurchaseReturnDto } from "../dto/purchase-return.dto";
+import { buildPagination, type Paginated } from "@/shared/utils/pagination";
+import type { CreatePurchaseReturnDto, PurchaseReturnListDto, PurchaseReturnExportDto } from "../dto/purchase-return.dto";
 import type { PurchaseReturnView } from "../types/purchase-return.types";
 
 type ItemWithReturn = PurchaseReturnItem & { purchaseItem: PurchaseItem };
 
 export const purchaseReturnService = {
-  async list(
-    tenantId: bigint,
-    purchaseId?: bigint,
-    scopedWarehouseId: bigint | null = null,
-  ): Promise<PurchaseReturnView[]> {
-    const returns = await purchaseReturnRepository.findManyByTenant(tenantId, {
-      purchaseId,
-      warehouseId: scopedWarehouseId,
+  async list(filter: PurchaseReturnListDto): Promise<Paginated<PurchaseReturnView>> {
+    const repoFilter = {
+      purchaseId: filter.purchaseId,
+      warehouseId: filter.scopedWarehouseId ?? null,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    };
+    const skip = (filter.page - 1) * filter.pageSize;
+    const [returns, total] = await Promise.all([
+      purchaseReturnRepository.findManyByTenant(filter.tenantId, { ...repoFilter, skip, take: filter.pageSize }),
+      purchaseReturnRepository.countByTenant(filter.tenantId, repoFilter),
+    ]);
+    return {
+      items: returns.map(toPurchaseReturnView),
+      pagination: buildPagination(filter.page, filter.pageSize, total),
+    };
+  },
+
+  // Same filter as list(), but every matching row — no page/pageSize — for
+  // GET /purchase-returns/export.
+  async exportList(filter: PurchaseReturnExportDto): Promise<PurchaseReturnView[]> {
+    const returns = await purchaseReturnRepository.findManyByTenant(filter.tenantId, {
+      purchaseId: filter.purchaseId,
+      warehouseId: filter.scopedWarehouseId ?? null,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
     });
     return returns.map(toPurchaseReturnView);
   },

@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { apiClient } from "@/lib/api/client";
+import { fetchAllPages } from "@/lib/api/fetch-all-pages";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useAuth } from "@/lib/auth/auth-context";
 import { buildDashboardInsights } from "@/lib/insights/compute-insights";
@@ -54,25 +55,37 @@ function KpiCard({ label, value, caption }: { label: string; value: string; capt
 export default function DashboardHomePage() {
   const { user } = useAuth();
 
+  // Insights aggregate over the complete set (revenue totals, GST) — a
+  // single capped page would silently understate them, so this fetches
+  // every page rather than treating /sales|/purchases as a picker.
   const salesQuery = useQuery({
-    queryKey: queryKeys.list("sales"),
-    queryFn: () => apiClient.get<SaleView[]>("/sales"),
+    queryKey: queryKeys.list("sales", { all: true }),
+    queryFn: () => fetchAllPages((page) => apiClient.get<Paginated<SaleView>>("/sales", { page, pageSize: 100 })),
   });
   const purchasesQuery = useQuery({
-    queryKey: queryKeys.list("purchases"),
-    queryFn: () => apiClient.get<PurchaseView[]>("/purchases"),
+    queryKey: queryKeys.list("purchases", { all: true }),
+    queryFn: () =>
+      fetchAllPages((page) => apiClient.get<Paginated<PurchaseView>>("/purchases", { page, pageSize: 100 })),
   });
   const productsQuery = useQuery({
     queryKey: queryKeys.list("products", { pageSize: 100 }),
     queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),
   });
+  // lowStockLines scans the complete set for low-stock rows — a single
+  // capped page could silently miss a low-stock alert.
   const balancesQuery = useQuery({
-    queryKey: queryKeys.list("inventory-balance"),
-    queryFn: () => apiClient.get<InventoryBalanceView[]>("/inventory/balance"),
+    queryKey: queryKeys.list("inventory-balance", { all: true }),
+    queryFn: () =>
+      fetchAllPages((page) =>
+        apiClient.get<Paginated<InventoryBalanceView>>("/inventory/balance", { page, pageSize: 100 }),
+      ),
   });
+  // totalCustomers is a KPI count over the complete set — a single capped
+  // page would silently understate it.
   const customersQuery = useQuery({
-    queryKey: queryKeys.list("customers"),
-    queryFn: () => apiClient.get<CustomerView[]>("/customers"),
+    queryKey: queryKeys.list("customers", { all: true }),
+    queryFn: () =>
+      fetchAllPages((page) => apiClient.get<Paginated<CustomerView>>("/customers", { page, pageSize: 100 })),
   });
   const suppliersQuery = useQuery({
     queryKey: queryKeys.list("suppliers"),
@@ -82,13 +95,18 @@ export default function DashboardHomePage() {
     queryKey: queryKeys.list("warehouses"),
     queryFn: () => apiClient.get<WarehouseView[]>("/warehouses"),
   });
+  // activeCouponsCount is a KPI count over the complete set — a single
+  // capped page would silently understate it.
   const couponsQuery = useQuery({
-    queryKey: queryKeys.list("coupons"),
-    queryFn: () => apiClient.get<CouponView[]>("/coupons"),
+    queryKey: queryKeys.list("coupons", { all: true }),
+    queryFn: () => fetchAllPages((page) => apiClient.get<Paginated<CouponView>>("/coupons", { page, pageSize: 100 })),
   });
+  // activeDiscountsCount is a KPI count over the complete set — a single
+  // capped page would silently understate it.
   const discountsQuery = useQuery({
-    queryKey: queryKeys.list("discounts"),
-    queryFn: () => apiClient.get<DiscountView[]>("/discounts"),
+    queryKey: queryKeys.list("discounts", { all: true }),
+    queryFn: () =>
+      fetchAllPages((page) => apiClient.get<Paginated<DiscountView>>("/discounts", { page, pageSize: 100 })),
   });
   const taxRatesQuery = useQuery({
     queryKey: queryKeys.list("tax-rates"),

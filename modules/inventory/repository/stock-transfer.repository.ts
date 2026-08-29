@@ -2,15 +2,35 @@ import { prisma } from "@/shared/database/prisma";
 import type { Db } from "@/shared/database/transaction-client";
 import type { Prisma, StockTransferStatus } from "@prisma/client";
 
+type StockTransferFilter = {
+  warehouseId?: bigint | null;
+  dateFrom?: Date;
+  dateTo?: Date;
+};
+
+function whereClause(tenantId: bigint, filter: StockTransferFilter): Prisma.StockTransferWhereInput {
+  return {
+    tenantId,
+    ...(filter.warehouseId
+      ? { OR: [{ fromWarehouseId: filter.warehouseId }, { toWarehouseId: filter.warehouseId }] }
+      : {}),
+    ...(filter.dateFrom || filter.dateTo
+      ? {
+          transferDate: {
+            ...(filter.dateFrom ? { gte: filter.dateFrom } : {}),
+            ...(filter.dateTo ? { lte: filter.dateTo } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 export const stockTransferRepository = {
-  findManyByTenant(tenantId: bigint, scopedWarehouseId?: bigint | null) {
+  // skip/take both optional — omitted entirely means "every matching row,"
+  // which is what exportList() wants; list() always supplies both.
+  findManyByTenant(tenantId: bigint, filter: StockTransferFilter & { skip?: number; take?: number }) {
     return prisma.stockTransfer.findMany({
-      where: {
-        tenantId,
-        ...(scopedWarehouseId
-          ? { OR: [{ fromWarehouseId: scopedWarehouseId }, { toWarehouseId: scopedWarehouseId }] }
-          : {}),
-      },
+      where: whereClause(tenantId, filter),
       include: {
         fromWarehouse: true,
         toWarehouse: true,
@@ -19,7 +39,13 @@ export const stockTransferRepository = {
         },
       },
       orderBy: { transferDate: "desc" },
+      ...(filter.skip !== undefined ? { skip: filter.skip } : {}),
+      ...(filter.take !== undefined ? { take: filter.take } : {}),
     });
+  },
+
+  countByTenant(tenantId: bigint, filter: StockTransferFilter) {
+    return prisma.stockTransfer.count({ where: whereClause(tenantId, filter) });
   },
 
   findByIdForTenant(tenantId: bigint, id: bigint) {

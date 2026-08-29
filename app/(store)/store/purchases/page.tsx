@@ -36,10 +36,11 @@ export default function StorePurchasesPage() {
   const { can, user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data: purchases, isLoading } = useQuery({
-    queryKey: queryKeys.list("purchases"),
-    queryFn: () => apiClient.get<PurchaseView[]>("/purchases"),
+  const { data: purchasesPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("purchases", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<PurchaseView>>("/purchases", { page: 1, pageSize: 100 }),
   });
+  const purchases = purchasesPage?.items;
   const { data: suppliers } = useQuery({
     queryKey: queryKeys.list("suppliers"),
     queryFn: () => apiClient.get<SupplierView[]>("/suppliers"),

@@ -87,9 +87,18 @@ function LoginForm() {
     const explicitNext = searchParams.get("next");
     let next = explicitNext ?? "/dashboard";
     if (!explicitNext) {
-      const me = await apiClient.get<MeView>("/auth/me");
-      if (me.permissions.includes("STORE.ACCESS")) {
-        next = "/store";
+      // Best-effort only: this just picks /dashboard vs /store. The login
+      // itself already succeeded above, so a failure here must never leave
+      // the user stranded on the login page — fall back to the /dashboard
+      // default and let the real, authoritative permission check happen
+      // there instead.
+      try {
+        const me = await apiClient.get<MeView>("/auth/me");
+        if (me.permissions.includes("STORE.ACCESS")) {
+          next = "/store";
+        }
+      } catch {
+        // fall through with next = "/dashboard"
       }
     }
     router.push(next);

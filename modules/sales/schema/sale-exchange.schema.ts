@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { idString } from "@/shared/validation/id";
 import { positiveDecimalString } from "@/shared/validation/decimal";
+import { paginationQueryFields, dateRangeQueryFields } from "@/shared/validation/list-query";
 
 export const createSaleExchangeSchema = z.object({
   saleId: idString,
@@ -55,3 +56,17 @@ export const quoteSaleExchangeSchema = z.object({
   taxInclusive: z.boolean().optional(),
 });
 export type QuoteSaleExchangeInput = z.infer<typeof quoteSaleExchangeSchema>;
+
+// dateFrom/dateTo filter on createdAt (see
+// modules/sales/repository/sale-exchange.repository.ts).
+export const listSaleExchangesQuerySchema = z.object({
+  ...paginationQueryFields,
+  ...dateRangeQueryFields,
+});
+export type ListSaleExchangesQuery = z.infer<typeof listSaleExchangesQuerySchema>;
+
+// Same filters as the list, minus pagination — see Docs/API_STANDARDS.md -> List Export.
+export const exportSaleExchangesQuerySchema = z.object({
+  ...dateRangeQueryFields,
+});
+export type ExportSaleExchangesQuery = z.infer<typeof exportSaleExchangesQuerySchema>;

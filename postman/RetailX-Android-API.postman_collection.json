@@ -2696,10 +2696,10 @@
                 "quote"
               ]
             },
-            "description": "Permission SALE.VIEW.",
+            "description": "Permission SALE.VIEW. Always send `channel` matching whatever value this same cart will use for POST /sales (POS/ONLINE/MARKETPLACE/PHONE) — an extra charge restricted to one channel (see GET /extra-charges -> applicableChannels) is only included in the preview when channel matches; an unrestricted charge (applicableChannels: null) always applies regardless of channel. Omitting channel silently understates the total by any channel-restricted charge that would otherwise apply to the real sale.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"warehouseId\": \"{{warehouse_id}}\",\n  \"customerId\": \"{{customer_id}}\",\n  \"customerGroupId\": null,\n  \"couponCode\": null,\n  \"lines\": [\n    {\n      \"productId\": \"{{product_id}}\",\n      \"categoryId\": \"{{category_id}}\",\n      \"quantity\": 2,\n      \"unitPrice\": 199\n    }\n  ]\n}",
+              "raw": "{\n  \"warehouseId\": \"{{warehouse_id}}\",\n  \"customerId\": \"{{customer_id}}\",\n  \"customerGroupId\": null,\n  \"couponCode\": null,\n  \"channel\": \"POS\",\n  \"lines\": [\n    {\n      \"productId\": \"{{product_id}}\",\n      \"categoryId\": \"{{category_id}}\",\n      \"quantity\": 2,\n      \"unitPrice\": 199\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"

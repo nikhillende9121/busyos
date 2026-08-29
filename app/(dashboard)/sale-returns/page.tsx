@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
+import { DateRangeFilter, type DateRange } from "@/components/resource/date-range-filter";
+import { ExportButton } from "@/components/resource/export-button";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -35,15 +37,19 @@ export default function SaleReturnsPage() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [dateRange, setDateRange] = useState<DateRange>({});
 
-  const { data: returns, isLoading } = useQuery({
-    queryKey: queryKeys.list("sale-returns"),
-    queryFn: () => apiClient.get<SaleReturnView[]>("/sale-returns"),
+  const { data: returnsPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("sale-returns", { page, ...dateRange }),
+    queryFn: () => apiClient.get<Paginated<SaleReturnView>>("/sale-returns", { page, pageSize: 20, ...dateRange }),
   });
-  const { data: sales } = useQuery({
-    queryKey: queryKeys.list("sales"),
-    queryFn: () => apiClient.get<SaleView[]>("/sales"),
+  const returns = returnsPage?.items;
+  const { data: salesPage } = useQuery({
+    queryKey: queryKeys.list("sales", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<SaleView>>("/sales", { page: 1, pageSize: 100 }),
   });
+  const sales = salesPage?.items;
   const { data: products } = useQuery({
     queryKey: queryKeys.list("products", { pageSize: 100 }),
     queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),
@@ -70,12 +76,25 @@ export default function SaleReturnsPage() {
         )}
       </div>
 
+      <div className="flex items-end justify-between gap-3">
+        <DateRangeFilter
+          value={dateRange}
+          onChange={(next) => {
+            setDateRange(next);
+            setPage(1);
+          }}
+        />
+        <ExportButton resource="sale-returns" params={dateRange} />
+      </div>
+
       <DataTable
         columns={columns}
         rows={rows}
         isLoading={isLoading}
         getRowId={(row) => row.id}
         emptyMessage="No sale returns yet."
+        pagination={returnsPage?.pagination}
+        onPageChange={setPage}
       />
 
       {createOpen && (

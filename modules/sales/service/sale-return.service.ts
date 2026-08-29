@@ -5,7 +5,13 @@ import { saleReturnRepository } from "../repository/sale-return.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
-import type { CreateSaleReturnDto, QuoteSaleReturnDto } from "../dto/sale-return.dto";
+import { buildPagination, type Paginated } from "@/shared/utils/pagination";
+import type {
+  CreateSaleReturnDto,
+  QuoteSaleReturnDto,
+  SaleReturnListDto,
+  SaleReturnExportDto,
+} from "../dto/sale-return.dto";
 import type { SaleReturnView, SaleReturnQuoteView } from "../types/sale-return.types";
 
 export type ItemWithReturn = SaleReturnItem & { saleItem: SaleItem };
@@ -17,10 +23,32 @@ export type ItemWithReturn = SaleReturnItem & { saleItem: SaleItem };
 export const RETURNABLE_SALE_STATUSES = new Set<SaleStatus>(["CONFIRMED", "COMPLETED"]);
 
 export const saleReturnService = {
-  async list(tenantId: bigint, saleId?: bigint, scopedWarehouseId: bigint | null = null): Promise<SaleReturnView[]> {
-    const returns = await saleReturnRepository.findManyByTenant(tenantId, {
-      saleId,
-      warehouseId: scopedWarehouseId,
+  async list(filter: SaleReturnListDto): Promise<Paginated<SaleReturnView>> {
+    const repoFilter = {
+      saleId: filter.saleId,
+      warehouseId: filter.scopedWarehouseId ?? null,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    };
+    const skip = (filter.page - 1) * filter.pageSize;
+    const [returns, total] = await Promise.all([
+      saleReturnRepository.findManyByTenant(filter.tenantId, { ...repoFilter, skip, take: filter.pageSize }),
+      saleReturnRepository.countByTenant(filter.tenantId, repoFilter),
+    ]);
+    return {
+      items: returns.map(toSaleReturnView),
+      pagination: buildPagination(filter.page, filter.pageSize, total),
+    };
+  },
+
+  // Same filter as list(), but every matching row — no page/pageSize — for
+  // GET /sale-returns/export.
+  async exportList(filter: SaleReturnExportDto): Promise<SaleReturnView[]> {
+    const returns = await saleReturnRepository.findManyByTenant(filter.tenantId, {
+      saleId: filter.saleId,
+      warehouseId: filter.scopedWarehouseId ?? null,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
     });
     return returns.map(toSaleReturnView);
   },

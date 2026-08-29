@@ -15,6 +15,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
+import { DateRangeFilter, type DateRange } from "@/components/resource/date-range-filter";
+import { ExportButton } from "@/components/resource/export-button";
 import { MultiSelectPicker } from "@/components/resource/multi-select-picker";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
@@ -46,11 +48,14 @@ export default function DiscountsPage() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [dateRange, setDateRange] = useState<DateRange>({});
 
-  const { data: discounts, isLoading } = useQuery({
-    queryKey: queryKeys.list("discounts"),
-    queryFn: () => apiClient.get<DiscountView[]>("/discounts"),
+  const { data: discountsPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("discounts", { page, ...dateRange }),
+    queryFn: () => apiClient.get<Paginated<DiscountView>>("/discounts", { page, pageSize: 20, ...dateRange }),
   });
+  const discounts = discountsPage?.items;
   const { data: products } = useQuery({
     queryKey: queryKeys.list("products", { pageSize: 100 }),
     queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),
@@ -148,12 +153,25 @@ export default function DiscountsPage() {
         )}
       </div>
 
+      <div className="flex items-end justify-between gap-3">
+        <DateRangeFilter
+          value={dateRange}
+          onChange={(next) => {
+            setDateRange(next);
+            setPage(1);
+          }}
+        />
+        <ExportButton resource="discounts" params={dateRange} />
+      </div>
+
       <DataTable
         columns={columns}
         rows={discounts ?? []}
         isLoading={isLoading}
         getRowId={(row) => row.id}
         emptyMessage="No discounts yet."
+        pagination={discountsPage?.pagination}
+        onPageChange={setPage}
       />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

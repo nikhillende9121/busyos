@@ -41,3 +41,19 @@ export type QuoteSaleExchangeDto = {
   taxInclusive?: boolean;
   scopedWarehouseId?: bigint | null;
 };
+
+export type SaleExchangeListDto = {
+  tenantId: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+  page: number;
+  pageSize: number;
+  scopedWarehouseId?: bigint | null;
+};
+
+export type SaleExchangeExportDto = {
+  tenantId: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+  scopedWarehouseId?: bigint | null;
+};

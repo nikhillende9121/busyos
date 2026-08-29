@@ -17,6 +17,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
 import { LineItemsField } from "@/components/resource/line-items-field";
+import { DateRangeFilter, type DateRange } from "@/components/resource/date-range-filter";
+import { ExportButton } from "@/components/resource/export-button";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -34,11 +36,14 @@ export default function PurchasesPage() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [dateRange, setDateRange] = useState<DateRange>({});
 
-  const { data: purchases, isLoading } = useQuery({
-    queryKey: queryKeys.list("purchases"),
-    queryFn: () => apiClient.get<PurchaseView[]>("/purchases"),
+  const { data: purchasesPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("purchases", { page, ...dateRange }),
+    queryFn: () => apiClient.get<Paginated<PurchaseView>>("/purchases", { page, pageSize: 20, ...dateRange }),
   });
+  const purchases = purchasesPage?.items;
   const { data: suppliers } = useQuery({
     queryKey: queryKeys.list("suppliers"),
     queryFn: () => apiClient.get<SupplierView[]>("/suppliers"),
@@ -141,12 +146,25 @@ export default function PurchasesPage() {
         )}
       </div>
 
+      <div className="flex items-end justify-between gap-3">
+        <DateRangeFilter
+          value={dateRange}
+          onChange={(next) => {
+            setDateRange(next);
+            setPage(1);
+          }}
+        />
+        <ExportButton resource="purchases" params={dateRange} />
+      </div>
+
       <DataTable
         columns={columns}
         rows={rows}
         isLoading={isLoading}
         getRowId={(row) => row.id}
         emptyMessage="No purchases yet."
+        pagination={purchasesPage?.pagination}
+        onPageChange={setPage}
       />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

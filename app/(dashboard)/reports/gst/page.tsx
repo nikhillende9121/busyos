@@ -10,11 +10,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { apiClient } from "@/lib/api/client";
+import { fetchAllPages } from "@/lib/api/fetch-all-pages";
 import { queryKeys } from "@/lib/api/query-keys";
 import { computeGstInsights } from "@/lib/insights/compute-gst-insights";
 import type { SaleView } from "@/modules/sales/types/sale.types";
 import type { PurchaseView } from "@/modules/purchase/types/purchase.types";
 import type { TaxRateView } from "@/modules/tax-rate/types/tax-rate.types";
+import type { Paginated } from "@/shared/utils/pagination";
 
 const componentChartConfig = {
   amount: { label: "Tax collected", color: "var(--chart-1)" },
@@ -51,13 +53,17 @@ export default function GstReportPage() {
   const [from, setFrom] = useState(firstOfMonth(now));
   const [to, setTo] = useState(today(now));
 
+  // GST totals must be computed over the complete set, not one capped
+  // page — this fetches every page rather than treating /sales|/purchases
+  // as a picker.
   const salesQuery = useQuery({
-    queryKey: queryKeys.list("sales"),
-    queryFn: () => apiClient.get<SaleView[]>("/sales"),
+    queryKey: queryKeys.list("sales", { all: true }),
+    queryFn: () => fetchAllPages((page) => apiClient.get<Paginated<SaleView>>("/sales", { page, pageSize: 100 })),
   });
   const purchasesQuery = useQuery({
-    queryKey: queryKeys.list("purchases"),
-    queryFn: () => apiClient.get<PurchaseView[]>("/purchases"),
+    queryKey: queryKeys.list("purchases", { all: true }),
+    queryFn: () =>
+      fetchAllPages((page) => apiClient.get<Paginated<PurchaseView>>("/purchases", { page, pageSize: 100 })),
   });
   const taxRatesQuery = useQuery({
     queryKey: queryKeys.list("tax-rates"),

@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
-import { createSaleSchema, listSalesQuerySchema } from "../schema/sale.schema";
+import { createSaleSchema, listSalesQuerySchema, exportSalesQuerySchema } from "../schema/sale.schema";
 import { saleService } from "../service/sale.service";
-import { successResponse } from "@/shared/utils/api-response";
+import { successResponse, csvResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
+import { toCsv } from "@/shared/utils/csv";
 import { idString } from "@/shared/validation/id";
 import type { AuthContext } from "@/shared/middleware/with-api-auth";
 
@@ -18,9 +19,42 @@ export const saleController = {
         tenantId: auth.tenantId,
         status: query.status,
         channel: query.channel,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        page: query.page,
+        pageSize: query.pageSize,
         scopedWarehouseId: auth.warehouseId,
       });
       return successResponse(sales, "Sales retrieved");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
+  // Every row matching the same filters as list(), as a CSV file — see
+  // Docs/API_STANDARDS.md -> List Export.
+  async exportList(request: NextRequest, auth: AuthContext) {
+    try {
+      const query = exportSalesQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const sales = await saleService.exportList({
+        tenantId: auth.tenantId,
+        status: query.status,
+        channel: query.channel,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        scopedWarehouseId: auth.warehouseId,
+      });
+      const csv = toCsv(sales, [
+        { key: "saleNumber", header: "Sale #" },
+        { key: "customerName", header: "Customer" },
+        { key: "channel", header: "Channel" },
+        { key: "status", header: "Status" },
+        { key: "saleDate", header: "Sale Date" },
+        { key: "subtotal", header: "Subtotal" },
+        { key: "taxAmount", header: "Tax" },
+        { key: "totalAmount", header: "Total" },
+      ]);
+      return csvResponse(csv, `sales-${new Date().toISOString().slice(0, 10)}.csv`);
     } catch (error) {
       return handleRouteError(error);
     }

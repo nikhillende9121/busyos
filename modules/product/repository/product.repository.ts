@@ -5,6 +5,8 @@ type ProductFilter = {
   status?: string;
   categoryId?: bigint;
   search?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
   // Restricts to this exact set of ids — used to filter the catalog down
   // to "only what's priced for this warehouse" (see product.service.ts's
   // list()). Undefined means no restriction; an empty array (a warehouse
@@ -33,6 +35,14 @@ function whereClause(tenantId: bigint, filter: ProductFilter): Prisma.ProductWhe
           ],
         }
       : {}),
+    ...(filter.dateFrom || filter.dateTo
+      ? {
+          createdAt: {
+            ...(filter.dateFrom ? { gte: filter.dateFrom } : {}),
+            ...(filter.dateTo ? { lte: filter.dateTo } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -41,16 +51,18 @@ function whereClause(tenantId: bigint, filter: ProductFilter): Prisma.ProductWhe
 // default in every read here; there is no "include deleted" path yet
 // because nothing in this module needs to restore a deleted product.
 export const productRepository = {
+  // skip/take both optional — omitted entirely means "every matching row,"
+  // which is what exportList() wants; list() always supplies both.
   findManyByTenant(
     tenantId: bigint,
-    filter: ProductFilter & ProductSort & { skip: number; take: number },
+    filter: ProductFilter & ProductSort & { skip?: number; take?: number },
   ) {
     return prisma.product.findMany({
       where: whereClause(tenantId, filter),
       orderBy: { [filter.sortBy]: filter.sortDir },
-      skip: filter.skip,
-      take: filter.take,
       include: { images: { orderBy: { sortOrder: "asc" } } },
+      ...(filter.skip !== undefined ? { skip: filter.skip } : {}),
+      ...(filter.take !== undefined ? { take: filter.take } : {}),
     });
   },
 

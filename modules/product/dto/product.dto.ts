@@ -36,6 +36,8 @@ export type ProductListDto = {
   status?: ProductStatus;
   categoryId?: bigint;
   search?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
   // When set (explicitly, or via scopedWarehouseId below), the list is
   // restricted to products priced for this warehouse — see
   // product.service.ts's list().
@@ -45,5 +47,17 @@ export type ProductListDto = {
   // unrestricted.
   scopedWarehouseId?: bigint | null;
   // When true, bypasses warehouse price-list scoping (e.g. for purchase creation)
+  all?: boolean;
+};
+
+export type ProductExportDto = {
+  tenantId: bigint;
+  status?: ProductStatus;
+  categoryId?: bigint;
+  search?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
+  warehouseId?: bigint;
+  scopedWarehouseId?: bigint | null;
   all?: boolean;
 };

@@ -62,7 +62,11 @@ Every list/detail endpoint is already filtered/scoped server-side to this user's
 ## Sales — the core screen, build this like a real checkout
 Not a form. A tap-first flow:
 1. **Product grid**: searchable (by name/SKU/barcode), tap a tile to add to a running cart. `GET /api/v1/inventory/balance` (omit `warehouseId`) returns quantity **and** a resolved `price` per product for this store in one call — use it to show stock and a price hint on each tile, and to prefill each cart line's displayed price.
-2. **Cart panel**: quantity steppers per line, price shown **read-only** (not an editable field — the server is the sole source of truth for price; a client-supplied price is not accepted, see below), a running subtotal computed client-side from the displayed prices as an estimate only.
+2. **Cart panel**: quantity steppers per line, price shown **read-only** (not an editable field — the server is the sole source of truth for price; a client-supplied price is not accepted, see below). For the running total, debounce a call to `POST /api/v1/pricing/quote` on every cart/coupon change — **do not** compute the total client-side from the displayed prices, even as an "estimate." This is a real, server-computed preview (discounts, coupon, GST breakdown, extra charges), not a placeholder:
+```json
+{ "warehouseId": "<own, from /auth/me>", "customerId": "optional", "couponCode": "optional", "channel": "POS", "lines": [{ "productId": "..", "quantity": "2", "unitPrice": "<price hint from the product grid>" }] }
+```
+   Send the **same `channel`** you're about to charge with in step 3 — an `ExtraCharge` can be restricted to one channel (`GET /api/v1/extra-charges` -> `applicableChannels`; `null` means it always applies regardless of channel), and it only shows up in `charges`/`chargesTotal`/`grandTotal` when `channel` matches. Omitting `channel` silently under-shows the total by any channel-restricted charge. Render `lines[].tax`/`taxes`, `charges`, `chargesTotal`, `taxTotal`, and `grandTotal` straight from the response — same "never derive money from client input" rule as pricing.
 3. One **Charge** button at the bottom that does `POST /api/v1/sales`:
 ```json
 { "customerId": "..", "warehouseId": "<own, from /auth/me>", "channel": "POS", "saleDate": "2026-08-06", "items": [{ "productId": "..", "quantity": "2" }], "couponCode": "optional" }

@@ -10,7 +10,8 @@ import type { TaxContext } from "@/modules/pricing/types/tax.types";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import { rbacLookup } from "@/shared/middleware/rbac-lookup";
-import type { CreateSaleDto, SaleListDto } from "../dto/sale.dto";
+import { buildPagination, type Paginated } from "@/shared/utils/pagination";
+import type { CreateSaleDto, SaleListDto, SaleExportDto } from "../dto/sale.dto";
 import type { SaleView } from "../types/sale.types";
 
 // Channel-dependent lifecycle — see Docs/business-rules/sales.md and
@@ -65,15 +66,40 @@ const CANCELLABLE_STATUSES = new Set<SaleStatus>([
 const STOCK_DECREMENTED_STATUSES = new Set<SaleStatus>(["CONFIRMED", "PROCESSING", "PACKED", "COMPLETED"]);
 
 export const saleService = {
-  async list(filter: SaleListDto): Promise<SaleView[]> {
-    const [sales, taxInclusive] = await Promise.all([
-      saleRepository.findManyByTenant(filter.tenantId, {
-        status: filter.status as never,
-        channel: filter.channel as never,
-        warehouseId: filter.scopedWarehouseId ?? undefined,
-      }),
+  async list(filter: SaleListDto): Promise<Paginated<SaleView>> {
+    const repoFilter = {
+      status: filter.status as never,
+      channel: filter.channel as never,
+      warehouseId: filter.scopedWarehouseId ?? undefined,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    };
+    const skip = (filter.page - 1) * filter.pageSize;
+    const [sales, total, taxInclusive] = await Promise.all([
+      saleRepository.findManyByTenant(filter.tenantId, { ...repoFilter, skip, take: filter.pageSize }),
+      saleRepository.countByTenant(filter.tenantId, repoFilter),
       // One tenant, one setting — resolved once for the whole page rather
       // than once per sale.
+      resolveTaxInclusive(filter.tenantId),
+    ]);
+    return {
+      items: sales.map((sale) => toSaleView(sale, taxInclusive)),
+      pagination: buildPagination(filter.page, filter.pageSize, total),
+    };
+  },
+
+  // Same filter as list(), but every matching row — no page/pageSize — for
+  // GET /sales/export (see modules/sales/controller/sale.controller.ts).
+  async exportList(filter: SaleExportDto): Promise<SaleView[]> {
+    const repoFilter = {
+      status: filter.status as never,
+      channel: filter.channel as never,
+      warehouseId: filter.scopedWarehouseId ?? undefined,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    };
+    const [sales, taxInclusive] = await Promise.all([
+      saleRepository.findManyByTenant(filter.tenantId, repoFilter),
       resolveTaxInclusive(filter.tenantId),
     ]);
     return sales.map((sale) => toSaleView(sale, taxInclusive));
@@ -478,22 +504,31 @@ export async function resolveSaleCharges(
 ): Promise<
   { extraChargeId: bigint; taxRateId: bigint | null; name: string; amount: string; taxAmount: string }[]
 > {
-  let targetChargeIds = extraChargeIds ?? [];
-  if (targetChargeIds.length === 0 && channel && extraChargeRepository?.findManyByTenant) {
-    try {
-      const activeCharges = (await extraChargeRepository.findManyByTenant(tenantId)) || [];
-      targetChargeIds = activeCharges
-        .filter((c) => {
-          if (!c.isActive) return false;
-          if (!c.applicableChannels) return true;
-          const allowed = c.applicableChannels.split(",").map((s) => s.trim()).filter(Boolean);
-          return allowed.length === 0 || allowed.includes(channel);
-        })
-        .map((c) => c.id);
-    } catch {
-      targetChargeIds = [];
+  // An unrestricted charge (no applicableChannels) is effectively mandatory
+  // — a platform/bank fee, or a flat shipping charge that always applies —
+  // not something a client opts into, so it's included regardless of
+  // whether extraChargeIds/channel were passed at all. A channel-restricted
+  // charge still only auto-applies when the caller identifies its channel,
+  // since applicability genuinely can't be inferred without it. Either way,
+  // this is additive to (never replaces) whatever the caller explicitly
+  // requested via extraChargeIds — e.g. an optional "Gift wrap" a customer
+  // picked still shows up alongside a mandatory shipping charge.
+  const autoChargeIds = new Set<string>();
+  const activeCharges = (await extraChargeRepository.findManyByTenant(tenantId)) || [];
+  for (const c of activeCharges) {
+    if (!c.isActive) continue;
+    const allowedChannels = c.applicableChannels
+      ? c.applicableChannels.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+    const isUnrestricted = allowedChannels.length === 0;
+    const matchesChannel = channel !== undefined && allowedChannels.includes(channel);
+    if (isUnrestricted || matchesChannel) {
+      autoChargeIds.add(c.id.toString());
     }
   }
+
+  const explicitChargeIds = (extraChargeIds ?? []).map((id) => id.toString());
+  const targetChargeIds = [...new Set([...explicitChargeIds, ...autoChargeIds])].map((id) => BigInt(id));
 
   if (targetChargeIds.length === 0) {
     return [];

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { idString, optionalIdString } from "@/shared/validation/id";
 import { positiveDecimalString } from "@/shared/validation/decimal";
+import { paginationQueryFields, dateRangeQueryFields } from "@/shared/validation/list-query";
 
 export const createSaleSchema = z.object({
   customerId: optionalIdString,
@@ -27,7 +28,7 @@ export const createSaleSchema = z.object({
 });
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
 
-export const listSalesQuerySchema = z.object({
+const saleListFilterFields = {
   status: z
     .enum([
       "PENDING_PAYMENT",
@@ -43,5 +44,20 @@ export const listSalesQuerySchema = z.object({
     ])
     .optional(),
   channel: z.enum(["POS", "ONLINE", "MARKETPLACE", "PHONE"]).optional(),
+};
+
+// dateFrom/dateTo filter on saleDate — see modules/sales/repository/sale.repository.ts.
+export const listSalesQuerySchema = z.object({
+  ...saleListFilterFields,
+  ...paginationQueryFields,
+  ...dateRangeQueryFields,
 });
 export type ListSalesQuery = z.infer<typeof listSalesQuerySchema>;
+
+// Same filters as the list, minus pagination — an export always returns
+// every matching row (see Docs/API_STANDARDS.md -> List Export).
+export const exportSalesQuerySchema = z.object({
+  ...saleListFilterFields,
+  ...dateRangeQueryFields,
+});
+export type ExportSalesQuery = z.infer<typeof exportSalesQuerySchema>;

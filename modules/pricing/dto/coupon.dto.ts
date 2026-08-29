@@ -19,3 +19,17 @@ export type CreateCouponDto = {
   endDate?: Date;
   stackable?: boolean;
 };
+
+export type CouponListDto = {
+  tenantId: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+  page: number;
+  pageSize: number;
+};
+
+export type CouponExportDto = {
+  tenantId: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+};

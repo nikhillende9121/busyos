@@ -72,6 +72,16 @@ warehouse   GET/POST/PUT/DELETE  /api/v1/warehouses
 
 - `GET` list endpoints accept `page`, `pageSize`, `sortBy`, `sortDir`, and
   module-specific filters as query params (e.g. `?status=ACTIVE&categoryId=3`).
+- High-volume/transactional resources (sales, purchases, purchase returns,
+  sale returns, sale exchanges, stock transfers, customers, discounts,
+  coupons, products) additionally accept `dateFrom`/`dateTo`, filtering on
+  that resource's own natural date field (`saleDate`, `purchaseDate`,
+  `createdAt`, ...) — see `shared/validation/list-query.ts`'s
+  `paginationQueryFields`/`dateRangeQueryFields`, spread into each
+  resource's own list-query schema rather than duplicated per module.
+  `dateFrom`/`dateTo` are never an entity's own business-data date range
+  (e.g. a `Discount`'s `startDate`/`endDate` validity window) — those stay
+  separate, unrelated concepts.
 - Mutating endpoints (`POST`/`PUT`/`DELETE`) validate the body against the
   module's Zod schema in `schema/` before it reaches the controller's parsed
   DTO.
@@ -112,6 +122,31 @@ List endpoints wrap `data` with pagination metadata:
   }
 }
 ```
+
+## List Export
+
+Every resource listed above under "high-volume/transactional resources"
+also exposes `GET /<resource>/export` — a sibling route next to the list
+route (e.g. `app/api/v1/sales/export/route.ts` beside
+`app/api/v1/sales/route.ts`), not a query flag on the list route itself.
+
+- Accepts the exact same filters as the list endpoint (including
+  `dateFrom`/`dateTo`) **minus** `page`/`pageSize`/`sortBy`/`sortDir` — an
+  export always returns every row matching the filters, never one page.
+  This is the entire reason export exists: filtering a large dataset down
+  to a manageable CSV, not re-exporting whatever happened to be on screen.
+- On success, the response is **not** the usual `{success, data, message}`
+  envelope — it's a raw `text/csv; charset=utf-8` body with a
+  `Content-Disposition: attachment; filename="..."` header, built via
+  `shared/utils/csv.ts`'s `toCsv()` and `shared/utils/api-response.ts`'s
+  `csvResponse()`. On failure, it still goes through the normal JSON error
+  envelope (`handleRouteError`) — only the success path is a file.
+- Gated by the same `<RESOURCE>.VIEW` permission as the list route —
+  exporting is still just viewing, in bulk, not a separate permission.
+- The frontend's `components/resource/export-button.tsx` triggers this via
+  a raw `fetch()` (not `lib/api/client.ts`'s `apiClient`, which always
+  calls `response.json()`) to `/api/proxy/v1/<resource>/export`, then turns
+  the response body into a browser download.
 
 ## HTTP Status Codes
 

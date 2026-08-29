@@ -38,14 +38,16 @@ export default function StoreSaleReturnsPage() {
   const { can } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data: returns, isLoading } = useQuery({
-    queryKey: queryKeys.list("sale-returns"),
-    queryFn: () => apiClient.get<SaleReturnView[]>("/sale-returns"),
+  const { data: returnsPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("sale-returns", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<SaleReturnView>>("/sale-returns", { page: 1, pageSize: 100 }),
   });
-  const { data: sales } = useQuery({
-    queryKey: queryKeys.list("sales"),
-    queryFn: () => apiClient.get<SaleView[]>("/sales"),
+  const returns = returnsPage?.items;
+  const { data: salesPage } = useQuery({
+    queryKey: queryKeys.list("sales", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<SaleView>>("/sales", { page: 1, pageSize: 100 }),
   });
+  const sales = salesPage?.items;
   const { data: products } = useQuery({
     queryKey: queryKeys.list("products", { pageSize: 100 }),
     queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),

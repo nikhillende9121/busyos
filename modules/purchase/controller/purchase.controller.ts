@@ -3,12 +3,15 @@ import {
   createPurchaseSchema,
   receivePurchaseSchema,
   listPurchasesQuerySchema,
+  exportPurchasesQuerySchema,
 } from "../schema/purchase.schema";
 import { purchaseService } from "../service/purchase.service";
-import { successResponse } from "@/shared/utils/api-response";
+import { successResponse, csvResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
+import { toCsv } from "@/shared/utils/csv";
 import { idString } from "@/shared/validation/id";
 import type { AuthContext } from "@/shared/middleware/with-api-auth";
+import type { PurchaseView } from "../types/purchase.types";
 
 type PurchaseParams = { id: string };
 
@@ -23,9 +26,56 @@ export const purchaseController = {
       const purchases = await purchaseService.list({
         tenantId: auth.tenantId,
         status: query.status,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        page: query.page,
+        pageSize: query.pageSize,
         scopedWarehouseId: auth.warehouseId,
       });
       return successResponse(purchases, "Purchases retrieved");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
+  // Every row matching the same filters as list(), as a CSV file — see
+  // Docs/API_STANDARDS.md -> List Export.
+  async exportList(request: NextRequest, auth: AuthContext) {
+    try {
+      const query = exportPurchasesQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const purchases = await purchaseService.exportList({
+        tenantId: auth.tenantId,
+        status: query.status,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        scopedWarehouseId: auth.warehouseId,
+      });
+      const rows = purchases.map((purchase: PurchaseView) => {
+        const subtotal = purchase.items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
+        const tax =
+          purchase.items.reduce((sum, item) => sum + Number(item.tax), 0) +
+          purchase.charges.reduce((sum, charge) => sum + Number(charge.taxAmount), 0);
+        const charges = purchase.charges.reduce((sum, charge) => sum + Number(charge.amount), 0);
+        return {
+          id: purchase.id,
+          supplierId: purchase.supplierId,
+          status: purchase.status,
+          purchaseDate: purchase.purchaseDate,
+          subtotal: subtotal.toFixed(2),
+          tax: tax.toFixed(2),
+          total: (subtotal + tax + charges).toFixed(2),
+        };
+      });
+      const csv = toCsv(rows, [
+        { key: "id", header: "Purchase #" },
+        { key: "supplierId", header: "Supplier ID" },
+        { key: "status", header: "Status" },
+        { key: "purchaseDate", header: "Purchase Date" },
+        { key: "subtotal", header: "Subtotal" },
+        { key: "tax", header: "Tax" },
+        { key: "total", header: "Total" },
+      ]);
+      return csvResponse(csv, `purchases-${new Date().toISOString().slice(0, 10)}.csv`);
     } catch (error) {
       return handleRouteError(error);
     }

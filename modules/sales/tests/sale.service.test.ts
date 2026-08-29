@@ -11,6 +11,7 @@ vi.mock("@/shared/database/prisma", () => ({
 vi.mock("../repository/sale.repository", () => ({
   saleRepository: {
     findManyByTenant: vi.fn(),
+    countByTenant: vi.fn(),
     findByIdForTenant: vi.fn(),
     findByIdTx: vi.fn(),
     create: vi.fn(),
@@ -60,13 +61,20 @@ vi.mock("@/shared/middleware/rbac-lookup", () => ({
   },
 }));
 
+vi.mock("@/modules/extra-charge/repository/extra-charge.repository", () => ({
+  extraChargeRepository: {
+    findManyByTenant: vi.fn(),
+  },
+}));
+
 import { saleRepository } from "../repository/sale.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
 import { promotionService } from "@/modules/pricing/service/promotion.service";
 import { priceListService } from "@/modules/pricing/service/price-list.service";
 import { taxService } from "@/modules/pricing/service/tax.service";
 import { rbacLookup } from "@/shared/middleware/rbac-lookup";
-import { saleService } from "../service/sale.service";
+import { extraChargeRepository } from "@/modules/extra-charge/repository/extra-charge.repository";
+import { saleService, resolveSaleCharges } from "../service/sale.service";
 
 // Matches the single { productId: 100n, quantity: "2" } item every test in
 // this file creates a sale with — a zero-tax, no-charge quote() result.
@@ -184,12 +192,13 @@ describe("saleService — warehouse scoping", () => {
 
   it("filters list() by the caller's scoped warehouse", async () => {
     vi.mocked(saleRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(saleRepository.countByTenant).mockResolvedValue(0);
 
-    await saleService.list({ tenantId: 1n, scopedWarehouseId: 10n });
+    await saleService.list({ tenantId: 1n, scopedWarehouseId: 10n, page: 1, pageSize: 20 });
 
     expect(saleRepository.findManyByTenant).toHaveBeenCalledWith(
       1n,
-      expect.objectContaining({ warehouseId: 10n }),
+      expect.objectContaining({ warehouseId: 10n, skip: 0, take: 20 }),
     );
   });
 
@@ -779,5 +788,164 @@ describe("saleService.cancel", () => {
 
     await expect(saleService.cancel(1n, 800n)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     expect(inventoryService.recordMovement).not.toHaveBeenCalled();
+  });
+});
+
+describe("saleService.list — pagination & date filter", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(saleRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(saleRepository.countByTenant).mockResolvedValue(45);
+    vi.mocked(taxService.resolveTaxInclusivePricing).mockResolvedValue(false);
+  });
+
+  it("computes skip from page and pageSize, and returns pagination built from the count", async () => {
+    const result = await saleService.list({ tenantId: 1n, page: 3, pageSize: 20 });
+
+    expect(saleRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ skip: 40, take: 20 }),
+    );
+    expect(result.pagination).toEqual({ page: 3, pageSize: 20, total: 45, totalPages: 3 });
+  });
+
+  it("passes dateFrom/dateTo through to the repository", async () => {
+    const dateFrom = new Date("2026-01-01T00:00:00.000Z");
+    const dateTo = new Date("2026-01-31T00:00:00.000Z");
+
+    await saleService.list({ tenantId: 1n, page: 1, pageSize: 20, dateFrom, dateTo });
+
+    expect(saleRepository.findManyByTenant).toHaveBeenCalledWith(1n, expect.objectContaining({ dateFrom, dateTo }));
+    expect(saleRepository.countByTenant).toHaveBeenCalledWith(1n, expect.objectContaining({ dateFrom, dateTo }));
+  });
+});
+
+describe("saleService.exportList", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(taxService.resolveTaxInclusivePricing).mockResolvedValue(false);
+  });
+
+  it("fetches every matching row with no skip/take, honoring the same filters as list()", async () => {
+    vi.mocked(saleRepository.findManyByTenant).mockResolvedValue([saleRow()] as never);
+    const dateFrom = new Date("2026-01-01T00:00:00.000Z");
+
+    const sales = await saleService.exportList({ tenantId: 1n, channel: "POS", dateFrom });
+
+    expect(sales).toHaveLength(1);
+    const callArgs = vi.mocked(saleRepository.findManyByTenant).mock.calls[0][1] as Record<string, unknown>;
+    expect(callArgs).toMatchObject({ channel: "POS", dateFrom });
+    expect(callArgs.skip).toBeUndefined();
+    expect(callArgs.take).toBeUndefined();
+    expect(saleRepository.countByTenant).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveSaleCharges", () => {
+  const DEFAULT_TAX_CONTEXT = { isIntraState: true, taxInclusivePricing: false, defaultTaxRateId: null };
+
+  function extraChargeRow(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: 1n,
+      name: "Shipping",
+      calcType: "FLAT",
+      value: new Prisma.Decimal("50"),
+      isTaxable: false,
+      taxRateId: null,
+      applicableChannels: null,
+      isActive: true,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("auto-applies an unrestricted charge even with no extraChargeIds and no channel", async () => {
+    vi.mocked(extraChargeRepository.findManyByTenant).mockResolvedValue([extraChargeRow()] as never);
+    vi.mocked(saleRepository.findExtraChargeForTenant).mockResolvedValue(extraChargeRow() as never);
+
+    const result = await resolveSaleCharges(1n, DEFAULT_TAX_CONTEXT as never, undefined, "200");
+
+    expect(result).toEqual([
+      { extraChargeId: 1n, taxRateId: null, name: "Shipping", amount: "50", taxAmount: "0" },
+    ]);
+  });
+
+  it("does not auto-apply a channel-restricted charge when no channel is given", async () => {
+    vi.mocked(extraChargeRepository.findManyByTenant).mockResolvedValue([
+      extraChargeRow({ id: 2n, name: "Online Delivery", applicableChannels: "ONLINE" }),
+    ] as never);
+
+    const result = await resolveSaleCharges(1n, DEFAULT_TAX_CONTEXT as never, undefined, "200");
+
+    expect(result).toEqual([]);
+    expect(saleRepository.findExtraChargeForTenant).not.toHaveBeenCalled();
+  });
+
+  it("auto-applies a channel-restricted charge when the matching channel is given", async () => {
+    vi.mocked(extraChargeRepository.findManyByTenant).mockResolvedValue([
+      extraChargeRow({ id: 2n, name: "Online Delivery", applicableChannels: "ONLINE" }),
+    ] as never);
+    vi.mocked(saleRepository.findExtraChargeForTenant).mockResolvedValue(
+      extraChargeRow({ id: 2n, name: "Online Delivery", applicableChannels: "ONLINE" }) as never,
+    );
+
+    const result = await resolveSaleCharges(1n, DEFAULT_TAX_CONTEXT as never, undefined, "200", "ONLINE");
+
+    expect(result).toEqual([
+      { extraChargeId: 2n, taxRateId: null, name: "Online Delivery", amount: "50", taxAmount: "0" },
+    ]);
+  });
+
+  it("does not apply a channel-restricted charge for a non-matching channel", async () => {
+    vi.mocked(extraChargeRepository.findManyByTenant).mockResolvedValue([
+      extraChargeRow({ id: 2n, name: "Online Delivery", applicableChannels: "ONLINE" }),
+    ] as never);
+
+    const result = await resolveSaleCharges(1n, DEFAULT_TAX_CONTEXT as never, undefined, "200", "POS");
+
+    expect(result).toEqual([]);
+  });
+
+  it("combines an explicitly requested charge with an auto-applied unrestricted charge, deduplicated", async () => {
+    vi.mocked(extraChargeRepository.findManyByTenant).mockResolvedValue([extraChargeRow()] as never);
+    vi.mocked(saleRepository.findExtraChargeForTenant).mockImplementation((async (_tenantId: bigint, id: bigint) =>
+      id === 1n
+        ? extraChargeRow()
+        : extraChargeRow({ id: 7n, name: "Gift wrap", calcType: "FLAT", value: new Prisma.Decimal("20") })) as never);
+
+    const result = await resolveSaleCharges(1n, DEFAULT_TAX_CONTEXT as never, [7n], "200");
+
+    expect(result.map((r) => r.extraChargeId).sort()).toEqual([1n, 7n].sort());
+  });
+
+  it("never double-counts a charge that is both explicitly requested and auto-applicable", async () => {
+    vi.mocked(extraChargeRepository.findManyByTenant).mockResolvedValue([extraChargeRow()] as never);
+    vi.mocked(saleRepository.findExtraChargeForTenant).mockResolvedValue(extraChargeRow() as never);
+
+    const result = await resolveSaleCharges(1n, DEFAULT_TAX_CONTEXT as never, [1n], "200");
+
+    expect(result).toHaveLength(1);
+  });
+
+  it("computes tax on a taxable charge", async () => {
+    vi.mocked(extraChargeRepository.findManyByTenant).mockResolvedValue([
+      extraChargeRow({ isTaxable: true, taxRateId: 5n }),
+    ] as never);
+    vi.mocked(saleRepository.findExtraChargeForTenant).mockResolvedValue(
+      extraChargeRow({ isTaxable: true, taxRateId: 5n }) as never,
+    );
+    vi.mocked(taxService.computeChargeTax).mockResolvedValue({
+      taxRateId: "5",
+      taxableAmount: "50",
+      components: [],
+      taxTotal: "9",
+    } as never);
+
+    const result = await resolveSaleCharges(1n, DEFAULT_TAX_CONTEXT as never, undefined, "200");
+
+    expect(result).toEqual([{ extraChargeId: 1n, taxRateId: 5n, name: "Shipping", amount: "50", taxAmount: "9" }]);
   });
 });

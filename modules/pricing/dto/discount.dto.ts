@@ -18,3 +18,17 @@ export type CreateDiscountDto = {
   stackable?: boolean;
   priority?: number;
 };
+
+export type DiscountListDto = {
+  tenantId: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+  page: number;
+  pageSize: number;
+};
+
+export type DiscountExportDto = {
+  tenantId: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+};

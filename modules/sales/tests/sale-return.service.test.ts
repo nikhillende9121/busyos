@@ -10,6 +10,7 @@ vi.mock("@/shared/database/prisma", () => ({
 vi.mock("../repository/sale-return.repository", () => ({
   saleReturnRepository: {
     findManyByTenant: vi.fn(),
+    countByTenant: vi.fn(),
     findByIdForTenant: vi.fn(),
     findSaleForTenant: vi.fn(),
     create: vi.fn(),
@@ -78,10 +79,27 @@ describe("saleReturnService — warehouse scoping", () => {
 
   it("filters list() by the caller's scoped warehouse", async () => {
     vi.mocked(saleReturnRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(saleReturnRepository.countByTenant).mockResolvedValue(0);
 
-    await saleReturnService.list(1n, undefined, 10n);
+    await saleReturnService.list({ tenantId: 1n, scopedWarehouseId: 10n, page: 1, pageSize: 20 });
 
-    expect(saleReturnRepository.findManyByTenant).toHaveBeenCalledWith(1n, { saleId: undefined, warehouseId: 10n });
+    expect(saleReturnRepository.findManyByTenant).toHaveBeenCalledWith(1n, {
+      saleId: undefined,
+      warehouseId: 10n,
+      dateFrom: undefined,
+      dateTo: undefined,
+      skip: 0,
+      take: 20,
+    });
+  });
+
+  it("computes pagination from the count", async () => {
+    vi.mocked(saleReturnRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(saleReturnRepository.countByTenant).mockResolvedValue(45);
+
+    const result = await saleReturnService.list({ tenantId: 1n, page: 3, pageSize: 20 });
+
+    expect(result.pagination).toEqual({ page: 3, pageSize: 20, total: 45, totalPages: 3 });
   });
 });
 

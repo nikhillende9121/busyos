@@ -1,18 +1,55 @@
 import type { NextRequest } from "next/server";
-import { createCustomerSchema, updateCustomerSchema } from "../schema/customer.schema";
+import {
+  createCustomerSchema,
+  updateCustomerSchema,
+  listCustomersQuerySchema,
+  exportCustomersQuerySchema,
+} from "../schema/customer.schema";
 import { customerService } from "../service/customer.service";
-import { successResponse } from "@/shared/utils/api-response";
+import { successResponse, csvResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
+import { toCsv } from "@/shared/utils/csv";
 import { idString } from "@/shared/validation/id";
 import type { AuthContext } from "@/shared/middleware/with-api-auth";
 
 type CustomerParams = { id: string };
 
 export const customerController = {
-  async list(_request: NextRequest, auth: AuthContext) {
+  async list(request: NextRequest, auth: AuthContext) {
     try {
-      const customers = await customerService.list(auth.tenantId);
+      const query = listCustomersQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const customers = await customerService.list({
+        tenantId: auth.tenantId,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        page: query.page,
+        pageSize: query.pageSize,
+      });
       return successResponse(customers, "Customers retrieved");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
+  // Every row matching the same filters as list(), as a CSV file — see
+  // Docs/API_STANDARDS.md -> List Export.
+  async exportList(request: NextRequest, auth: AuthContext) {
+    try {
+      const query = exportCustomersQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const customers = await customerService.exportList({
+        tenantId: auth.tenantId,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+      });
+      const csv = toCsv(customers, [
+        { key: "id", header: "Customer #" },
+        { key: "name", header: "Name" },
+        { key: "email", header: "Email" },
+        { key: "phone", header: "Phone" },
+        { key: "state", header: "State" },
+        { key: "createdAt", header: "Created" },
+      ]);
+      return csvResponse(csv, `customers-${new Date().toISOString().slice(0, 10)}.csv`);
     } catch (error) {
       return handleRouteError(error);
     }

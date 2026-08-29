@@ -1,12 +1,31 @@
 import type { Customer } from "@prisma/client";
 import { customerRepository } from "../repository/customer.repository";
 import { AppError } from "@/shared/errors/app-error";
-import type { CreateCustomerDto, UpdateCustomerDto } from "../dto/customer.dto";
+import { buildPagination, type Paginated } from "@/shared/utils/pagination";
+import type { CreateCustomerDto, UpdateCustomerDto, CustomerListDto, CustomerExportDto } from "../dto/customer.dto";
 import type { CustomerView } from "../types/customer.types";
 
 export const customerService = {
-  async list(tenantId: bigint): Promise<CustomerView[]> {
-    const customers = await customerRepository.findManyByTenant(tenantId);
+  async list(filter: CustomerListDto): Promise<Paginated<CustomerView>> {
+    const repoFilter = { dateFrom: filter.dateFrom, dateTo: filter.dateTo };
+    const skip = (filter.page - 1) * filter.pageSize;
+    const [customers, total] = await Promise.all([
+      customerRepository.findManyByTenant(filter.tenantId, { ...repoFilter, skip, take: filter.pageSize }),
+      customerRepository.countByTenant(filter.tenantId, repoFilter),
+    ]);
+    return {
+      items: customers.map(toCustomerView),
+      pagination: buildPagination(filter.page, filter.pageSize, total),
+    };
+  },
+
+  // Same filter as list(), but every matching row — no page/pageSize — for
+  // GET /customers/export.
+  async exportList(filter: CustomerExportDto): Promise<CustomerView[]> {
+    const customers = await customerRepository.findManyByTenant(filter.tenantId, {
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    });
     return customers.map(toCustomerView);
   },
 

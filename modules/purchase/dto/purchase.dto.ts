@@ -35,5 +35,17 @@ export type ReceivePurchaseDto = {
 export type PurchaseListDto = {
   tenantId: bigint;
   status?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
+  page: number;
+  pageSize: number;
+  scopedWarehouseId?: bigint | null;
+};
+
+export type PurchaseExportDto = {
+  tenantId: bigint;
+  status?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
   scopedWarehouseId?: bigint | null;
 };

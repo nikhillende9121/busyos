@@ -11,15 +11,41 @@ const includeFull = {
 // its view-conversion helper without repeating this include tree.
 export type SaleExchangeWithDetails = Prisma.SaleExchangeGetPayload<{ include: typeof includeFull }>;
 
+type SaleExchangeFilter = {
+  warehouseId?: bigint | null;
+  dateFrom?: Date;
+  dateTo?: Date;
+};
+
+function whereClause(tenantId: bigint, filter: SaleExchangeFilter): Prisma.SaleExchangeWhereInput {
+  return {
+    newSale: { tenantId, ...(filter.warehouseId ? { warehouseId: filter.warehouseId } : {}) },
+    ...(filter.dateFrom || filter.dateTo
+      ? {
+          createdAt: {
+            ...(filter.dateFrom ? { gte: filter.dateFrom } : {}),
+            ...(filter.dateTo ? { lte: filter.dateTo } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 export const saleExchangeRepository = {
-  findManyByTenant(tenantId: bigint, warehouseId?: bigint | null) {
+  // skip/take both optional — omitted entirely means "every matching row,"
+  // which is what exportList() wants; list() always supplies both.
+  findManyByTenant(tenantId: bigint, filter: SaleExchangeFilter & { skip?: number; take?: number }) {
     return prisma.saleExchange.findMany({
-      where: {
-        newSale: { tenantId, ...(warehouseId ? { warehouseId } : {}) },
-      },
+      where: whereClause(tenantId, filter),
       include: includeFull,
       orderBy: { createdAt: "desc" },
+      ...(filter.skip !== undefined ? { skip: filter.skip } : {}),
+      ...(filter.take !== undefined ? { take: filter.take } : {}),
     });
+  },
+
+  countByTenant(tenantId: bigint, filter: SaleExchangeFilter) {
+    return prisma.saleExchange.count({ where: whereClause(tenantId, filter) });
   },
 
   findByIdForTenant(tenantId: bigint, id: bigint) {

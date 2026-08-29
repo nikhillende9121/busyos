@@ -4,6 +4,8 @@ import { Prisma } from "@prisma/client";
 vi.mock("../repository/coupon.repository", () => ({
   couponRepository: {
     create: vi.fn(),
+    findManyByTenant: vi.fn(),
+    countByTenant: vi.fn(),
     findProductForTenant: vi.fn(),
     findCategoryForTenant: vi.fn(),
     findWarehouseForTenant: vi.fn(),
@@ -59,5 +61,52 @@ describe("couponService.create", () => {
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
 
     expect(couponRepository.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("couponService.list — pagination & date filter", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(couponRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(couponRepository.countByTenant).mockResolvedValue(45);
+  });
+
+  it("computes skip from page and pageSize, and returns pagination built from the count", async () => {
+    const result = await couponService.list({ tenantId: 1n, page: 3, pageSize: 20 });
+
+    expect(couponRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ skip: 40, take: 20 }),
+    );
+    expect(result.pagination).toEqual({ page: 3, pageSize: 20, total: 45, totalPages: 3 });
+  });
+
+  it("passes dateFrom/dateTo through to the repository", async () => {
+    const dateFrom = new Date("2026-01-01T00:00:00.000Z");
+    const dateTo = new Date("2026-01-31T00:00:00.000Z");
+
+    await couponService.list({ tenantId: 1n, page: 1, pageSize: 20, dateFrom, dateTo });
+
+    expect(couponRepository.findManyByTenant).toHaveBeenCalledWith(1n, expect.objectContaining({ dateFrom, dateTo }));
+    expect(couponRepository.countByTenant).toHaveBeenCalledWith(1n, expect.objectContaining({ dateFrom, dateTo }));
+  });
+});
+
+describe("couponService.exportList", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("fetches every matching row with no skip/take", async () => {
+    vi.mocked(couponRepository.findManyByTenant).mockResolvedValue([]);
+    const dateFrom = new Date("2026-01-01T00:00:00.000Z");
+
+    await couponService.exportList({ tenantId: 1n, dateFrom });
+
+    const callArgs = vi.mocked(couponRepository.findManyByTenant).mock.calls[0][1] as Record<string, unknown>;
+    expect(callArgs).toMatchObject({ dateFrom });
+    expect(callArgs.skip).toBeUndefined();
+    expect(callArgs.take).toBeUndefined();
+    expect(couponRepository.countByTenant).not.toHaveBeenCalled();
   });
 });

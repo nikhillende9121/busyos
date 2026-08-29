@@ -7,18 +7,45 @@ const includeFullPurchase = {
   charges: true,
 } as const;
 
+type PurchaseFilter = {
+  status?: PurchaseStatus;
+  warehouseId?: bigint | null;
+  dateFrom?: Date;
+  dateTo?: Date;
+};
+
+function whereClause(tenantId: bigint, filter: PurchaseFilter): Prisma.PurchaseWhereInput {
+  return {
+    tenantId,
+    deletedAt: null,
+    ...(filter.status ? { status: filter.status } : {}),
+    ...(filter.warehouseId ? { warehouseId: filter.warehouseId } : {}),
+    ...(filter.dateFrom || filter.dateTo
+      ? {
+          purchaseDate: {
+            ...(filter.dateFrom ? { gte: filter.dateFrom } : {}),
+            ...(filter.dateTo ? { lte: filter.dateTo } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 export const purchaseRepository = {
-  findManyByTenant(tenantId: bigint, filter: { status?: PurchaseStatus; warehouseId?: bigint | null }) {
+  // skip/take both optional — omitted entirely means "every matching row,"
+  // which is what exportList() wants; list() always supplies both.
+  findManyByTenant(tenantId: bigint, filter: PurchaseFilter & { skip?: number; take?: number }) {
     return prisma.purchase.findMany({
-      where: {
-        tenantId,
-        deletedAt: null,
-        ...(filter.status ? { status: filter.status } : {}),
-        ...(filter.warehouseId ? { warehouseId: filter.warehouseId } : {}),
-      },
+      where: whereClause(tenantId, filter),
       include: includeFullPurchase,
       orderBy: { purchaseDate: "desc" },
+      ...(filter.skip !== undefined ? { skip: filter.skip } : {}),
+      ...(filter.take !== undefined ? { take: filter.take } : {}),
     });
+  },
+
+  countByTenant(tenantId: bigint, filter: PurchaseFilter) {
+    return prisma.purchase.count({ where: whereClause(tenantId, filter) });
   },
 
   findByIdForTenant(tenantId: bigint, id: bigint) {

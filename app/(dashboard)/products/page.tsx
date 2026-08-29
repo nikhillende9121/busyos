@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
+import { DateRangeFilter, type DateRange } from "@/components/resource/date-range-filter";
+import { ExportButton } from "@/components/resource/export-button";
 import { ConfirmDialog } from "@/components/resource/confirm-dialog";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
@@ -44,13 +46,14 @@ export default function ProductsPage() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [page, setPage] = useState(1);
+  const [dateRange, setDateRange] = useState<DateRange>({});
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<ProductView | null>(null);
   const [deleting, setDeleting] = useState<ProductView | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.list("products", { page }),
-    queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page, pageSize: 20 }),
+    queryKey: queryKeys.list("products", { page, ...dateRange }),
+    queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page, pageSize: 20, ...dateRange }),
   });
 
   const { data: categories } = useQuery({
@@ -149,6 +152,17 @@ export default function ProductsPage() {
             <Plus /> New product
           </Button>
         )}
+      </div>
+
+      <div className="flex items-end justify-between gap-3">
+        <DateRangeFilter
+          value={dateRange}
+          onChange={(next) => {
+            setDateRange(next);
+            setPage(1);
+          }}
+        />
+        <ExportButton resource="products" params={dateRange} />
       </div>
 
       <DataTable

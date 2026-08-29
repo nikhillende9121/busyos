@@ -10,6 +10,7 @@ vi.mock("@/shared/database/prisma", () => ({
 vi.mock("../repository/purchase.repository", () => ({
   purchaseRepository: {
     findManyByTenant: vi.fn(),
+    countByTenant: vi.fn(),
     findByIdForTenant: vi.fn(),
     findByIdTx: vi.fn(),
     create: vi.fn(),
@@ -119,12 +120,13 @@ describe("purchaseService — warehouse scoping", () => {
 
   it("filters list() by the caller's scoped warehouse", async () => {
     vi.mocked(purchaseRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(purchaseRepository.countByTenant).mockResolvedValue(0);
 
-    await purchaseService.list({ tenantId: 1n, scopedWarehouseId: 10n });
+    await purchaseService.list({ tenantId: 1n, scopedWarehouseId: 10n, page: 1, pageSize: 20 });
 
     expect(purchaseRepository.findManyByTenant).toHaveBeenCalledWith(
       1n,
-      expect.objectContaining({ warehouseId: 10n }),
+      expect.objectContaining({ warehouseId: 10n, skip: 0, take: 20 }),
     );
   });
 });
@@ -424,5 +426,53 @@ describe("purchaseService.receive", () => {
 
     expect(purchase.status).toBe("RECEIVED");
     expect(purchaseRepository.updateStatus).toHaveBeenCalledWith("purchase-tx", 500n, "RECEIVED");
+  });
+});
+
+describe("purchaseService.list — pagination & date filter", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(purchaseRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(purchaseRepository.countByTenant).mockResolvedValue(45);
+  });
+
+  it("computes skip from page and pageSize, and returns pagination built from the count", async () => {
+    const result = await purchaseService.list({ tenantId: 1n, page: 3, pageSize: 20 });
+
+    expect(purchaseRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ skip: 40, take: 20 }),
+    );
+    expect(result.pagination).toEqual({ page: 3, pageSize: 20, total: 45, totalPages: 3 });
+  });
+
+  it("passes dateFrom/dateTo through to the repository", async () => {
+    const dateFrom = new Date("2026-01-01T00:00:00.000Z");
+    const dateTo = new Date("2026-01-31T00:00:00.000Z");
+
+    await purchaseService.list({ tenantId: 1n, page: 1, pageSize: 20, dateFrom, dateTo });
+
+    expect(purchaseRepository.findManyByTenant).toHaveBeenCalledWith(1n, expect.objectContaining({ dateFrom, dateTo }));
+    expect(purchaseRepository.countByTenant).toHaveBeenCalledWith(1n, expect.objectContaining({ dateFrom, dateTo }));
+  });
+});
+
+describe("purchaseService.exportList", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("fetches every matching row with no skip/take, honoring the same filters as list()", async () => {
+    vi.mocked(purchaseRepository.findManyByTenant).mockResolvedValue([purchaseRow()] as never);
+    const dateFrom = new Date("2026-01-01T00:00:00.000Z");
+
+    const purchases = await purchaseService.exportList({ tenantId: 1n, status: "ORDERED", dateFrom });
+
+    expect(purchases).toHaveLength(1);
+    const callArgs = vi.mocked(purchaseRepository.findManyByTenant).mock.calls[0][1] as Record<string, unknown>;
+    expect(callArgs).toMatchObject({ status: "ORDERED", dateFrom });
+    expect(callArgs.skip).toBeUndefined();
+    expect(callArgs.take).toBeUndefined();
+    expect(purchaseRepository.countByTenant).not.toHaveBeenCalled();
   });
 });

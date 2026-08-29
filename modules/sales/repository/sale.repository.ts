@@ -10,22 +10,48 @@ const includeFullSale = {
   charges: true,
 } as const;
 
+type SaleFilter = {
+  status?: SaleStatus;
+  channel?: SaleChannel;
+  warehouseId?: bigint | null;
+  dateFrom?: Date;
+  dateTo?: Date;
+};
+
+function whereClause(tenantId: bigint, filter: SaleFilter): Prisma.SaleWhereInput {
+  return {
+    tenantId,
+    deletedAt: null,
+    ...(filter.status ? { status: filter.status } : {}),
+    ...(filter.channel ? { channel: filter.channel } : {}),
+    ...(filter.warehouseId ? { warehouseId: filter.warehouseId } : {}),
+    ...(filter.dateFrom || filter.dateTo
+      ? {
+          saleDate: {
+            ...(filter.dateFrom ? { gte: filter.dateFrom } : {}),
+            ...(filter.dateTo ? { lte: filter.dateTo } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 export const saleRepository = {
-  findManyByTenant(
-    tenantId: bigint,
-    filter: { status?: SaleStatus; channel?: SaleChannel; warehouseId?: bigint | null },
-  ) {
+  // skip/take both optional — omitted entirely (not 0/undefined passed to
+  // Prisma) means "every matching row," which is what exportList() wants;
+  // list() always supplies both, computed from page/pageSize.
+  findManyByTenant(tenantId: bigint, filter: SaleFilter & { skip?: number; take?: number }) {
     return prisma.sale.findMany({
-      where: {
-        tenantId,
-        deletedAt: null,
-        ...(filter.status ? { status: filter.status } : {}),
-        ...(filter.channel ? { channel: filter.channel } : {}),
-        ...(filter.warehouseId ? { warehouseId: filter.warehouseId } : {}),
-      },
+      where: whereClause(tenantId, filter),
       include: includeFullSale,
       orderBy: { saleDate: "desc" },
+      ...(filter.skip !== undefined ? { skip: filter.skip } : {}),
+      ...(filter.take !== undefined ? { take: filter.take } : {}),
     });
+  },
+
+  countByTenant(tenantId: bigint, filter: SaleFilter) {
+    return prisma.sale.count({ where: whereClause(tenantId, filter) });
   },
 
   findByIdForTenant(tenantId: bigint, id: bigint) {

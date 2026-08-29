@@ -32,5 +32,18 @@ export type SaleListDto = {
   tenantId: bigint;
   status?: string;
   channel?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
+  page: number;
+  pageSize: number;
+  scopedWarehouseId?: bigint | null;
+};
+
+export type SaleExportDto = {
+  tenantId: bigint;
+  status?: string;
+  channel?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
   scopedWarehouseId?: bigint | null;
 };

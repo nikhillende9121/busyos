@@ -1,8 +1,13 @@
 import type { NextRequest } from "next/server";
-import { createPurchaseReturnSchema } from "../schema/purchase-return.schema";
+import {
+  createPurchaseReturnSchema,
+  listPurchaseReturnsQuerySchema,
+  exportPurchaseReturnsQuerySchema,
+} from "../schema/purchase-return.schema";
 import { purchaseReturnService } from "../service/purchase-return.service";
-import { successResponse } from "@/shared/utils/api-response";
+import { successResponse, csvResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
+import { toCsv } from "@/shared/utils/csv";
 import { idString } from "@/shared/validation/id";
 import type { AuthContext } from "@/shared/middleware/with-api-auth";
 
@@ -11,10 +16,49 @@ type PurchaseReturnParams = { id: string };
 export const purchaseReturnController = {
   async list(request: NextRequest, auth: AuthContext) {
     try {
-      const purchaseIdParam = request.nextUrl.searchParams.get("purchaseId");
-      const purchaseId = purchaseIdParam ? BigInt(idString.parse(purchaseIdParam)) : undefined;
-      const returns = await purchaseReturnService.list(auth.tenantId, purchaseId, auth.warehouseId);
+      const query = listPurchaseReturnsQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const returns = await purchaseReturnService.list({
+        tenantId: auth.tenantId,
+        purchaseId: query.purchaseId ? BigInt(query.purchaseId) : undefined,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        page: query.page,
+        pageSize: query.pageSize,
+        scopedWarehouseId: auth.warehouseId,
+      });
       return successResponse(returns, "Purchase returns retrieved");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
+  // Every row matching the same filters as list(), as a CSV file — see
+  // Docs/API_STANDARDS.md -> List Export.
+  async exportList(request: NextRequest, auth: AuthContext) {
+    try {
+      const query = exportPurchaseReturnsQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const returns = await purchaseReturnService.exportList({
+        tenantId: auth.tenantId,
+        purchaseId: query.purchaseId ? BigInt(query.purchaseId) : undefined,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        scopedWarehouseId: auth.warehouseId,
+      });
+      const rows = returns.map((r) => ({
+        id: r.id,
+        purchaseId: r.purchaseId,
+        reason: r.reason,
+        itemCount: r.items.length,
+        createdAt: r.createdAt,
+      }));
+      const csv = toCsv(rows, [
+        { key: "id", header: "Return #" },
+        { key: "purchaseId", header: "Purchase #" },
+        { key: "reason", header: "Reason" },
+        { key: "itemCount", header: "Items" },
+        { key: "createdAt", header: "Created" },
+      ]);
+      return csvResponse(csv, `purchase-returns-${new Date().toISOString().slice(0, 10)}.csv`);
     } catch (error) {
       return handleRouteError(error);
     }

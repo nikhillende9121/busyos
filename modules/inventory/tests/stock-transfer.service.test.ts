@@ -10,6 +10,7 @@ vi.mock("@/shared/database/prisma", () => ({
 vi.mock("../repository/stock-transfer.repository", () => ({
   stockTransferRepository: {
     findManyByTenant: vi.fn(),
+    countByTenant: vi.fn(),
     findByIdForTenant: vi.fn(),
     create: vi.fn(),
     createItem: vi.fn(),
@@ -505,10 +506,23 @@ describe("stockTransferService — list/getById warehouse scoping", () => {
 
   it("filters list() to transfers touching the caller's scoped warehouse on either side", async () => {
     vi.mocked(stockTransferRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(stockTransferRepository.countByTenant).mockResolvedValue(0);
 
-    await stockTransferService.list(1n, 10n);
+    await stockTransferService.list({ tenantId: 1n, scopedWarehouseId: 10n, page: 1, pageSize: 20 });
 
-    expect(stockTransferRepository.findManyByTenant).toHaveBeenCalledWith(1n, 10n);
+    expect(stockTransferRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ warehouseId: 10n, skip: 0, take: 20 }),
+    );
+  });
+
+  it("computes pagination from the count", async () => {
+    vi.mocked(stockTransferRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(stockTransferRepository.countByTenant).mockResolvedValue(45);
+
+    const result = await stockTransferService.list({ tenantId: 1n, page: 3, pageSize: 20 });
+
+    expect(result.pagination).toEqual({ page: 3, pageSize: 20, total: 45, totalPages: 3 });
   });
 
   it("rejects getById for a scoped caller touching neither warehouse", async () => {

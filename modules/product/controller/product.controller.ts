@@ -3,10 +3,12 @@ import {
   createProductSchema,
   updateProductSchema,
   listProductsQuerySchema,
+  exportProductsQuerySchema,
 } from "../schema/product.schema";
 import { productService } from "../service/product.service";
-import { successResponse } from "@/shared/utils/api-response";
+import { successResponse, csvResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
+import { toCsv } from "@/shared/utils/csv";
 import { idString } from "@/shared/validation/id";
 import type { AuthContext } from "@/shared/middleware/with-api-auth";
 
@@ -31,10 +33,42 @@ export const productController = {
         categoryId: query.categoryId ? BigInt(query.categoryId) : undefined,
         search: query.search,
         warehouseId: query.warehouseId ? BigInt(query.warehouseId) : undefined,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
         scopedWarehouseId: auth.warehouseId,
         all: query.all,
       });
       return successResponse(result, "Products retrieved");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
+  // Every row matching the same filters as list(), as a CSV file — see
+  // Docs/API_STANDARDS.md -> List Export.
+  async exportList(request: NextRequest, auth: AuthContext) {
+    try {
+      const query = exportProductsQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const products = await productService.exportList({
+        tenantId: auth.tenantId,
+        status: query.status,
+        categoryId: query.categoryId ? BigInt(query.categoryId) : undefined,
+        search: query.search,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        warehouseId: query.warehouseId ? BigInt(query.warehouseId) : undefined,
+        scopedWarehouseId: auth.warehouseId,
+        all: query.all,
+      });
+      const csv = toCsv(products, [
+        { key: "id", header: "Product #" },
+        { key: "sku", header: "SKU" },
+        { key: "barcode", header: "Barcode" },
+        { key: "name", header: "Name" },
+        { key: "status", header: "Status" },
+        { key: "createdAt", header: "Created" },
+      ]);
+      return csvResponse(csv, `products-${new Date().toISOString().slice(0, 10)}.csv`);
     } catch (error) {
       return handleRouteError(error);
     }

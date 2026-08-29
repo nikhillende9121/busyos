@@ -1,8 +1,14 @@
 import type { NextRequest } from "next/server";
-import { createSaleReturnSchema, quoteSaleReturnSchema } from "../schema/sale-return.schema";
+import {
+  createSaleReturnSchema,
+  quoteSaleReturnSchema,
+  listSaleReturnsQuerySchema,
+  exportSaleReturnsQuerySchema,
+} from "../schema/sale-return.schema";
 import { saleReturnService } from "../service/sale-return.service";
-import { successResponse } from "@/shared/utils/api-response";
+import { successResponse, csvResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
+import { toCsv } from "@/shared/utils/csv";
 import { idString } from "@/shared/validation/id";
 import type { AuthContext } from "@/shared/middleware/with-api-auth";
 
@@ -11,10 +17,49 @@ type SaleReturnParams = { id: string };
 export const saleReturnController = {
   async list(request: NextRequest, auth: AuthContext) {
     try {
-      const saleIdParam = request.nextUrl.searchParams.get("saleId");
-      const saleId = saleIdParam ? BigInt(idString.parse(saleIdParam)) : undefined;
-      const returns = await saleReturnService.list(auth.tenantId, saleId, auth.warehouseId);
+      const query = listSaleReturnsQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const returns = await saleReturnService.list({
+        tenantId: auth.tenantId,
+        saleId: query.saleId ? BigInt(query.saleId) : undefined,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        page: query.page,
+        pageSize: query.pageSize,
+        scopedWarehouseId: auth.warehouseId,
+      });
       return successResponse(returns, "Sale returns retrieved");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
+  // Every row matching the same filters as list(), as a CSV file — see
+  // Docs/API_STANDARDS.md -> List Export.
+  async exportList(request: NextRequest, auth: AuthContext) {
+    try {
+      const query = exportSaleReturnsQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const returns = await saleReturnService.exportList({
+        tenantId: auth.tenantId,
+        saleId: query.saleId ? BigInt(query.saleId) : undefined,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        scopedWarehouseId: auth.warehouseId,
+      });
+      const rows = returns.map((r) => ({
+        id: r.id,
+        saleId: r.saleId,
+        reason: r.reason,
+        totalRefundAmount: r.totalRefundAmount,
+        createdAt: r.createdAt,
+      }));
+      const csv = toCsv(rows, [
+        { key: "id", header: "Return #" },
+        { key: "saleId", header: "Sale #" },
+        { key: "reason", header: "Reason" },
+        { key: "totalRefundAmount", header: "Refund Amount" },
+        { key: "createdAt", header: "Created" },
+      ]);
+      return csvResponse(csv, `sale-returns-${new Date().toISOString().slice(0, 10)}.csv`);
     } catch (error) {
       return handleRouteError(error);
     }

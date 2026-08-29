@@ -36,14 +36,16 @@ export default function StorePurchaseReturnsPage() {
   const { can } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data: returns, isLoading } = useQuery({
-    queryKey: queryKeys.list("purchase-returns"),
-    queryFn: () => apiClient.get<PurchaseReturnView[]>("/purchase-returns"),
+  const { data: returnsPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("purchase-returns", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<PurchaseReturnView>>("/purchase-returns", { page: 1, pageSize: 100 }),
   });
-  const { data: purchases } = useQuery({
-    queryKey: queryKeys.list("purchases"),
-    queryFn: () => apiClient.get<PurchaseView[]>("/purchases"),
+  const returns = returnsPage?.items;
+  const { data: purchasesPage } = useQuery({
+    queryKey: queryKeys.list("purchases", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<PurchaseView>>("/purchases", { page: 1, pageSize: 100 }),
   });
+  const purchases = purchasesPage?.items;
   const { data: products } = useQuery({
     queryKey: queryKeys.list("products", { pageSize: 100 }),
     queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),

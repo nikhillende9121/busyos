@@ -2,14 +2,33 @@ import { Prisma } from "@prisma/client";
 import type { Discount, DiscountProduct, DiscountCategory } from "@prisma/client";
 import { discountRepository } from "../repository/discount.repository";
 import { AppError } from "@/shared/errors/app-error";
-import type { CreateDiscountDto } from "../dto/discount.dto";
+import { buildPagination, type Paginated } from "@/shared/utils/pagination";
+import type { CreateDiscountDto, DiscountListDto, DiscountExportDto } from "../dto/discount.dto";
 import type { DiscountView } from "../types/discount.types";
 
 type DiscountWithLinks = Discount & { products: DiscountProduct[]; categories: DiscountCategory[] };
 
 export const discountService = {
-  async list(tenantId: bigint): Promise<DiscountView[]> {
-    const discounts = await discountRepository.findManyByTenant(tenantId);
+  async list(filter: DiscountListDto): Promise<Paginated<DiscountView>> {
+    const repoFilter = { dateFrom: filter.dateFrom, dateTo: filter.dateTo };
+    const skip = (filter.page - 1) * filter.pageSize;
+    const [discounts, total] = await Promise.all([
+      discountRepository.findManyByTenant(filter.tenantId, { ...repoFilter, skip, take: filter.pageSize }),
+      discountRepository.countByTenant(filter.tenantId, repoFilter),
+    ]);
+    return {
+      items: discounts.map(toDiscountView),
+      pagination: buildPagination(filter.page, filter.pageSize, total),
+    };
+  },
+
+  // Same filter as list(), but every matching row — no page/pageSize — for
+  // GET /discounts/export.
+  async exportList(filter: DiscountExportDto): Promise<DiscountView[]> {
+    const discounts = await discountRepository.findManyByTenant(filter.tenantId, {
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    });
     return discounts.map(toDiscountView);
   },
 

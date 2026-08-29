@@ -2,13 +2,40 @@ import { prisma } from "@/shared/database/prisma";
 import type { Db } from "@/shared/database/transaction-client";
 import type { Prisma } from "@prisma/client";
 
+type CouponFilter = {
+  dateFrom?: Date;
+  dateTo?: Date;
+};
+
+function whereClause(tenantId: bigint, filter: CouponFilter): Prisma.CouponWhereInput {
+  return {
+    tenantId,
+    ...(filter.dateFrom || filter.dateTo
+      ? {
+          createdAt: {
+            ...(filter.dateFrom ? { gte: filter.dateFrom } : {}),
+            ...(filter.dateTo ? { lte: filter.dateTo } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 export const couponRepository = {
-  findManyByTenant(tenantId: bigint) {
+  // skip/take both optional — omitted entirely means "every matching row,"
+  // which is what exportList() wants; list() always supplies both.
+  findManyByTenant(tenantId: bigint, filter: CouponFilter & { skip?: number; take?: number }) {
     return prisma.coupon.findMany({
-      where: { tenantId },
+      where: whereClause(tenantId, filter),
       include: { products: true, categories: true },
       orderBy: { createdAt: "desc" },
+      ...(filter.skip !== undefined ? { skip: filter.skip } : {}),
+      ...(filter.take !== undefined ? { take: filter.take } : {}),
     });
+  },
+
+  countByTenant(tenantId: bigint, filter: CouponFilter) {
+    return prisma.coupon.count({ where: whereClause(tenantId, filter) });
   },
 
   findByIdForTenant(tenantId: bigint, id: bigint) {

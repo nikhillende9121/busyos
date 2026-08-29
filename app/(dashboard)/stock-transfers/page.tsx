@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
+import { DateRangeFilter, type DateRange } from "@/components/resource/date-range-filter";
+import { ExportButton } from "@/components/resource/export-button";
 import { LineItemsField } from "@/components/resource/line-items-field";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
@@ -30,16 +32,20 @@ export default function StockTransfersPage() {
   const queryClient = useQueryClient();
   const { can, user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [dateRange, setDateRange] = useState<DateRange>({});
   // A warehouse-scoped user (Store Manager role reaching this page instead
   // of /store) can only ever request stock into their own store — the
   // server rejects any other toWarehouseId (assertWarehouseAccess in
   // stock-transfer.service.ts), so don't make them pick it themselves.
   const scopedWarehouseId = user?.warehouseId ?? null;
 
-  const { data: transfers, isLoading } = useQuery({
-    queryKey: queryKeys.list("stock-transfers"),
-    queryFn: () => apiClient.get<StockTransferView[]>("/stock-transfers"),
+  const { data: transfersPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("stock-transfers", { page, ...dateRange }),
+    queryFn: () =>
+      apiClient.get<Paginated<StockTransferView>>("/stock-transfers", { page, pageSize: 20, ...dateRange }),
   });
+  const transfers = transfersPage?.items;
   const { data: warehouses } = useQuery({
     queryKey: queryKeys.list("warehouses"),
     queryFn: () => apiClient.get<WarehouseView[]>("/warehouses"),
@@ -130,12 +136,25 @@ export default function StockTransfersPage() {
         )}
       </div>
 
+      <div className="flex items-end justify-between gap-3">
+        <DateRangeFilter
+          value={dateRange}
+          onChange={(next) => {
+            setDateRange(next);
+            setPage(1);
+          }}
+        />
+        <ExportButton resource="stock-transfers" params={dateRange} />
+      </div>
+
       <DataTable
         columns={columns}
         rows={rows}
         isLoading={isLoading}
         getRowId={(row) => row.id}
         emptyMessage="No stock transfers yet."
+        pagination={transfersPage?.pagination}
+        onPageChange={setPage}
       />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

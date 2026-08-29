@@ -34,10 +34,11 @@ export default function StoreStockTransfersPage() {
   const { can, user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data: transfers, isLoading } = useQuery({
-    queryKey: queryKeys.list("stock-transfers"),
-    queryFn: () => apiClient.get<StockTransferView[]>("/stock-transfers"),
+  const { data: transfersPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("stock-transfers", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<StockTransferView>>("/stock-transfers", { page: 1, pageSize: 100 }),
   });
+  const transfers = transfersPage?.items;
   const { data: warehouses } = useQuery({
     queryKey: queryKeys.list("warehouses"),
     queryFn: () => apiClient.get<WarehouseView[]>("/warehouses"),

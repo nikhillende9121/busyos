@@ -14,13 +14,40 @@ function contextMatch(
   return { OR: [{ [field]: null }, { [field]: value }] };
 }
 
+type DiscountFilter = {
+  dateFrom?: Date;
+  dateTo?: Date;
+};
+
+function whereClause(tenantId: bigint, filter: DiscountFilter): Prisma.DiscountWhereInput {
+  return {
+    tenantId,
+    ...(filter.dateFrom || filter.dateTo
+      ? {
+          createdAt: {
+            ...(filter.dateFrom ? { gte: filter.dateFrom } : {}),
+            ...(filter.dateTo ? { lte: filter.dateTo } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 export const discountRepository = {
-  findManyByTenant(tenantId: bigint) {
+  // skip/take both optional — omitted entirely means "every matching row,"
+  // which is what exportList() wants; list() always supplies both.
+  findManyByTenant(tenantId: bigint, filter: DiscountFilter & { skip?: number; take?: number }) {
     return prisma.discount.findMany({
-      where: { tenantId },
+      where: whereClause(tenantId, filter),
       include: { products: true, categories: true },
       orderBy: { createdAt: "desc" },
+      ...(filter.skip !== undefined ? { skip: filter.skip } : {}),
+      ...(filter.take !== undefined ? { take: filter.take } : {}),
     });
+  },
+
+  countByTenant(tenantId: bigint, filter: DiscountFilter) {
+    return prisma.discount.count({ where: whereClause(tenantId, filter) });
   },
 
   findByIdForTenant(tenantId: bigint, id: bigint) {

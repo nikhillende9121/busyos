@@ -11,27 +11,40 @@ type BalanceFilter = {
   search?: string;
 };
 
+function whereClause(tenantId: bigint, filter: BalanceFilter): Prisma.InventoryBalanceWhereInput {
+  return {
+    tenantId,
+    ...(filter.warehouseId !== undefined ? { warehouseId: filter.warehouseId } : {}),
+    ...(filter.productId !== undefined ? { productId: filter.productId } : {}),
+    ...(filter.search
+      ? {
+          product: {
+            OR: [
+              { name: { contains: filter.search } },
+              { sku: { contains: filter.search } },
+              { barcode: { contains: filter.search } },
+            ],
+          },
+        }
+      : {}),
+  };
+}
+
 export const inventoryRepository = {
-  listBalancesByTenant(tenantId: bigint, filter: BalanceFilter) {
+  // skip/take both optional — omitted entirely means "every matching row,"
+  // which is what exportBalances() wants; listBalances() always supplies
+  // both.
+  listBalancesByTenant(tenantId: bigint, filter: BalanceFilter & { skip?: number; take?: number }) {
     return prisma.inventoryBalance.findMany({
-      where: {
-        tenantId,
-        ...(filter.warehouseId !== undefined ? { warehouseId: filter.warehouseId } : {}),
-        ...(filter.productId !== undefined ? { productId: filter.productId } : {}),
-        ...(filter.search
-          ? {
-              product: {
-                OR: [
-                  { name: { contains: filter.search } },
-                  { sku: { contains: filter.search } },
-                  { barcode: { contains: filter.search } },
-                ],
-              },
-            }
-          : {}),
-      },
+      where: whereClause(tenantId, filter),
       orderBy: [{ warehouseId: "asc" }, { productId: "asc" }],
+      ...(filter.skip !== undefined ? { skip: filter.skip } : {}),
+      ...(filter.take !== undefined ? { take: filter.take } : {}),
     });
+  },
+
+  countBalancesByTenant(tenantId: bigint, filter: BalanceFilter) {
+    return prisma.inventoryBalance.count({ where: whereClause(tenantId, filter) });
   },
 
   // Two statements, same transaction, on the path to every stock movement:

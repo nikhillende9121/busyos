@@ -20,3 +20,21 @@ export type QuoteSaleReturnDto = {
   items: CreateSaleReturnItemDto[];
   scopedWarehouseId?: bigint | null;
 };
+
+export type SaleReturnListDto = {
+  tenantId: bigint;
+  saleId?: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+  page: number;
+  pageSize: number;
+  scopedWarehouseId?: bigint | null;
+};
+
+export type SaleReturnExportDto = {
+  tenantId: bigint;
+  saleId?: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+  scopedWarehouseId?: bigint | null;
+};

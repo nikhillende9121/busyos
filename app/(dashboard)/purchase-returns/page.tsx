@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
+import { DateRangeFilter, type DateRange } from "@/components/resource/date-range-filter";
+import { ExportButton } from "@/components/resource/export-button";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -34,15 +36,20 @@ export default function PurchaseReturnsPage() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [dateRange, setDateRange] = useState<DateRange>({});
 
-  const { data: returns, isLoading } = useQuery({
-    queryKey: queryKeys.list("purchase-returns"),
-    queryFn: () => apiClient.get<PurchaseReturnView[]>("/purchase-returns"),
+  const { data: returnsPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("purchase-returns", { page, ...dateRange }),
+    queryFn: () =>
+      apiClient.get<Paginated<PurchaseReturnView>>("/purchase-returns", { page, pageSize: 20, ...dateRange }),
   });
-  const { data: purchases } = useQuery({
-    queryKey: queryKeys.list("purchases"),
-    queryFn: () => apiClient.get<PurchaseView[]>("/purchases"),
+  const returns = returnsPage?.items;
+  const { data: purchasesPage } = useQuery({
+    queryKey: queryKeys.list("purchases", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<PurchaseView>>("/purchases", { page: 1, pageSize: 100 }),
   });
+  const purchases = purchasesPage?.items;
   const { data: products } = useQuery({
     queryKey: queryKeys.list("products", { pageSize: 100 }),
     queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),
@@ -69,12 +76,25 @@ export default function PurchaseReturnsPage() {
         )}
       </div>
 
+      <div className="flex items-end justify-between gap-3">
+        <DateRangeFilter
+          value={dateRange}
+          onChange={(next) => {
+            setDateRange(next);
+            setPage(1);
+          }}
+        />
+        <ExportButton resource="purchase-returns" params={dateRange} />
+      </div>
+
       <DataTable
         columns={columns}
         rows={rows}
         isLoading={isLoading}
         getRowId={(row) => row.id}
         emptyMessage="No purchase returns yet."
+        pagination={returnsPage?.pagination}
+        onPageChange={setPage}
       />
 
       {createOpen && (

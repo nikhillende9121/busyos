@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
 import { apiClient, ApiError } from "@/lib/api/client";
+import { fetchAllPages } from "@/lib/api/fetch-all-pages";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useAuth } from "@/lib/auth/auth-context";
 import type { SaleView } from "@/modules/sales/types/sale.types";
@@ -67,14 +68,16 @@ export default function StoreSalesPage() {
   const queryClient = useQueryClient();
   const { can, user } = useAuth();
 
-  const { data: sales, isLoading } = useQuery({
-    queryKey: queryKeys.list("sales"),
-    queryFn: () => apiClient.get<SaleView[]>("/sales"),
+  const { data: salesPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("sales", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<SaleView>>("/sales", { page: 1, pageSize: 100 }),
   });
-  const { data: customers } = useQuery({
-    queryKey: queryKeys.list("customers"),
-    queryFn: () => apiClient.get<CustomerView[]>("/customers"),
+  const sales = salesPage?.items;
+  const { data: customersPage } = useQuery({
+    queryKey: queryKeys.list("customers", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<CustomerView>>("/customers", { page: 1, pageSize: 100 }),
   });
+  const customers = customersPage?.items;
   const { data: products } = useQuery({
     // 100 is the server's hard max (modules/product/schema/product.schema.ts) —
     // requesting more throws VALIDATION_ERROR, which silently empties this
@@ -164,8 +167,11 @@ function CheckoutScreen({
   // these just come back empty and the grid falls back to no qty/price
   // hint rather than breaking the page.
   const { data: balances } = useQuery({
-    queryKey: queryKeys.list("inventory-balance"),
-    queryFn: () => apiClient.get<InventoryBalanceView[]>("/inventory/balance"),
+    queryKey: queryKeys.list("inventory-balance", { all: true }),
+    queryFn: () =>
+      fetchAllPages((page) =>
+        apiClient.get<Paginated<InventoryBalanceView>>("/inventory/balance", { page, pageSize: 100 }),
+      ),
   });
   const { data: priceLists } = useQuery({
     queryKey: queryKeys.list("price-lists"),

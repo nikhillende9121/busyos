@@ -7,6 +7,16 @@ export type BalanceFilterDto = {
   // Matches the product's name, SKU, or barcode — see
   // modules/inventory/repository/inventory.repository.ts.
   search?: string;
+  page: number;
+  pageSize: number;
+  scopedWarehouseId?: bigint | null;
+};
+
+export type BalanceExportDto = {
+  tenantId: bigint;
+  warehouseId?: bigint;
+  productId?: bigint;
+  search?: string;
   scopedWarehouseId?: bigint | null;
 };
 

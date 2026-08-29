@@ -10,6 +10,7 @@ vi.mock("@/shared/database/prisma", () => ({
 vi.mock("../repository/inventory.repository", () => ({
   inventoryRepository: {
     listBalancesByTenant: vi.fn(),
+    countBalancesByTenant: vi.fn(),
     ensureAndLockBalance: vi.fn(),
     updateBalance: vi.fn(),
     createTransaction: vi.fn(),
@@ -157,32 +158,50 @@ describe("inventoryService — warehouse scoping", () => {
 
   it("rejects an explicit warehouseId filter outside the caller's scope", async () => {
     await expect(
-      inventoryService.listBalances({ tenantId: 1n, warehouseId: 999n, scopedWarehouseId: 10n }),
+      inventoryService.listBalances({
+        tenantId: 1n,
+        warehouseId: 999n,
+        scopedWarehouseId: 10n,
+        page: 1,
+        pageSize: 20,
+      }),
     ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     expect(inventoryRepository.listBalancesByTenant).not.toHaveBeenCalled();
   });
 
   it("defaults an unfiltered list to the caller's own scoped warehouse", async () => {
     vi.mocked(inventoryRepository.listBalancesByTenant).mockResolvedValue([]);
+    vi.mocked(inventoryRepository.countBalancesByTenant).mockResolvedValue(0);
 
-    await inventoryService.listBalances({ tenantId: 1n, scopedWarehouseId: 10n });
+    await inventoryService.listBalances({ tenantId: 1n, scopedWarehouseId: 10n, page: 1, pageSize: 20 });
 
     expect(inventoryRepository.listBalancesByTenant).toHaveBeenCalledWith(1n, {
       warehouseId: 10n,
       productId: undefined,
+      skip: 0,
+      take: 20,
     });
     expect(productService.getManyByIds).not.toHaveBeenCalled();
   });
 
   it("passes a search term through to the repository, for matching a scanned barcode", async () => {
     vi.mocked(inventoryRepository.listBalancesByTenant).mockResolvedValue([]);
+    vi.mocked(inventoryRepository.countBalancesByTenant).mockResolvedValue(0);
 
-    await inventoryService.listBalances({ tenantId: 1n, scopedWarehouseId: 10n, search: "8901234567890" });
+    await inventoryService.listBalances({
+      tenantId: 1n,
+      scopedWarehouseId: 10n,
+      search: "8901234567890",
+      page: 1,
+      pageSize: 20,
+    });
 
     expect(inventoryRepository.listBalancesByTenant).toHaveBeenCalledWith(1n, {
       warehouseId: 10n,
       productId: undefined,
       search: "8901234567890",
+      skip: 0,
+      take: 20,
     });
   });
 
@@ -191,6 +210,7 @@ describe("inventoryService — warehouse scoping", () => {
       { warehouseId: 10n, productId: 100n, quantity: new Prisma.Decimal("5"), updatedAt: new Date("2026-01-01") },
       { warehouseId: 20n, productId: 100n, quantity: new Prisma.Decimal("3"), updatedAt: new Date("2026-01-01") },
     ] as never);
+    vi.mocked(inventoryRepository.countBalancesByTenant).mockResolvedValue(2);
     vi.mocked(productService.getManyByIds).mockResolvedValue([
       { id: "100", sku: "SKU-1", name: "Widget", images: [] } as never,
     ]);
@@ -198,13 +218,14 @@ describe("inventoryService — warehouse scoping", () => {
       warehouseId === 10n ? new Map([["100", "199.00"]]) : new Map(),
     );
 
-    const result = await inventoryService.listBalances({ tenantId: 1n, scopedWarehouseId: null });
+    const result = await inventoryService.listBalances({ tenantId: 1n, scopedWarehouseId: null, page: 1, pageSize: 20 });
 
-    expect(result).toEqual([
+    expect(result.items).toEqual([
       expect.objectContaining({ warehouseId: "10", productId: "100", price: "199.00" }),
       expect.objectContaining({ warehouseId: "20", productId: "100", price: null }),
     ]);
-    expect(result[0].product).toMatchObject({ id: "100", sku: "SKU-1" });
+    expect(result.items[0].product).toMatchObject({ id: "100", sku: "SKU-1" });
+    expect(result.pagination).toEqual({ page: 1, pageSize: 20, total: 2, totalPages: 1 });
     expect(priceListService.resolveBuyOnePriceMap).toHaveBeenCalledWith(1n, 10n, [100n]);
     expect(priceListService.resolveBuyOnePriceMap).toHaveBeenCalledWith(1n, 20n, [100n]);
   });
@@ -220,6 +241,27 @@ describe("inventoryService — warehouse scoping", () => {
       }),
     ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     expect(inventoryRepository.findWarehouseForTenant).not.toHaveBeenCalled();
+  });
+});
+
+describe("inventoryService.exportBalances", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("fetches every matching row with no skip/take", async () => {
+    vi.mocked(inventoryRepository.listBalancesByTenant).mockResolvedValue([]);
+
+    await inventoryService.exportBalances({ tenantId: 1n, scopedWarehouseId: 10n });
+
+    const callArgs = vi.mocked(inventoryRepository.listBalancesByTenant).mock.calls[0][1] as Record<
+      string,
+      unknown
+    >;
+    expect(callArgs).toMatchObject({ warehouseId: 10n });
+    expect(callArgs.skip).toBeUndefined();
+    expect(callArgs.take).toBeUndefined();
+    expect(inventoryRepository.countBalancesByTenant).not.toHaveBeenCalled();
   });
 });
 

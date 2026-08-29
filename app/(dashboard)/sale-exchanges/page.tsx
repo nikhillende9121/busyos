@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
 import { LineItemsField } from "@/components/resource/line-items-field";
+import { DateRangeFilter, type DateRange } from "@/components/resource/date-range-filter";
+import { ExportButton } from "@/components/resource/export-button";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -45,15 +47,20 @@ export default function SaleExchangesPage() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [dateRange, setDateRange] = useState<DateRange>({});
 
-  const { data: exchanges, isLoading } = useQuery({
-    queryKey: queryKeys.list("sale-exchanges"),
-    queryFn: () => apiClient.get<SaleExchangeView[]>("/sale-exchanges"),
+  const { data: exchangesPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("sale-exchanges", { page, ...dateRange }),
+    queryFn: () =>
+      apiClient.get<Paginated<SaleExchangeView>>("/sale-exchanges", { page, pageSize: 20, ...dateRange }),
   });
-  const { data: sales } = useQuery({
-    queryKey: queryKeys.list("sales"),
-    queryFn: () => apiClient.get<SaleView[]>("/sales"),
+  const exchanges = exchangesPage?.items;
+  const { data: salesPage } = useQuery({
+    queryKey: queryKeys.list("sales", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<SaleView>>("/sales", { page: 1, pageSize: 100 }),
   });
+  const sales = salesPage?.items;
   const { data: products } = useQuery({
     queryKey: queryKeys.list("products", { pageSize: 100 }),
     queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),
@@ -101,12 +108,25 @@ export default function SaleExchangesPage() {
         )}
       </div>
 
+      <div className="flex items-end justify-between gap-3">
+        <DateRangeFilter
+          value={dateRange}
+          onChange={(next) => {
+            setDateRange(next);
+            setPage(1);
+          }}
+        />
+        <ExportButton resource="sale-exchanges" params={dateRange} />
+      </div>
+
       <DataTable
         columns={columns}
         rows={exchanges ?? []}
         isLoading={isLoading}
         getRowId={(row) => row.id}
         emptyMessage="No sale exchanges yet."
+        pagination={exchangesPage?.pagination}
+        onPageChange={setPage}
       />
 
       {createOpen && (

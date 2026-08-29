@@ -2,14 +2,33 @@ import { Prisma } from "@prisma/client";
 import type { Coupon, CouponProduct, CouponCategory } from "@prisma/client";
 import { couponRepository } from "../repository/coupon.repository";
 import { AppError } from "@/shared/errors/app-error";
-import type { CreateCouponDto } from "../dto/coupon.dto";
+import { buildPagination, type Paginated } from "@/shared/utils/pagination";
+import type { CreateCouponDto, CouponListDto, CouponExportDto } from "../dto/coupon.dto";
 import type { CouponView } from "../types/coupon.types";
 
 type CouponWithLinks = Coupon & { products: CouponProduct[]; categories: CouponCategory[] };
 
 export const couponService = {
-  async list(tenantId: bigint): Promise<CouponView[]> {
-    const coupons = await couponRepository.findManyByTenant(tenantId);
+  async list(filter: CouponListDto): Promise<Paginated<CouponView>> {
+    const repoFilter = { dateFrom: filter.dateFrom, dateTo: filter.dateTo };
+    const skip = (filter.page - 1) * filter.pageSize;
+    const [coupons, total] = await Promise.all([
+      couponRepository.findManyByTenant(filter.tenantId, { ...repoFilter, skip, take: filter.pageSize }),
+      couponRepository.countByTenant(filter.tenantId, repoFilter),
+    ]);
+    return {
+      items: coupons.map(toCouponView),
+      pagination: buildPagination(filter.page, filter.pageSize, total),
+    };
+  },
+
+  // Same filter as list(), but every matching row — no page/pageSize — for
+  // GET /coupons/export.
+  async exportList(filter: CouponExportDto): Promise<CouponView[]> {
+    const coupons = await couponRepository.findManyByTenant(filter.tenantId, {
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    });
     return coupons.map(toCouponView);
   },
 

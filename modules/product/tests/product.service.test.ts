@@ -150,6 +150,25 @@ describe("productService.list", () => {
   });
 });
 
+describe("productService.exportList", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("fetches every matching row with no skip/take, honoring dateFrom/dateTo", async () => {
+    vi.mocked(productRepository.findManyByTenant).mockResolvedValue([]);
+    const dateFrom = new Date("2026-01-01T00:00:00.000Z");
+
+    await productService.exportList({ tenantId: 1n, dateFrom });
+
+    const callArgs = vi.mocked(productRepository.findManyByTenant).mock.calls[0][1] as Record<string, unknown>;
+    expect(callArgs).toMatchObject({ dateFrom });
+    expect(callArgs.skip).toBeUndefined();
+    expect(callArgs.take).toBeUndefined();
+    expect(productRepository.countByTenant).not.toHaveBeenCalled();
+  });
+});
+
 describe("productService.getById", () => {
   beforeEach(() => {
     vi.clearAllMocks();

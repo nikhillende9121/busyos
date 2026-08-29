@@ -51,14 +51,16 @@ export default function StoreSaleExchangesPage() {
   const { can } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data: exchanges, isLoading } = useQuery({
-    queryKey: queryKeys.list("sale-exchanges"),
-    queryFn: () => apiClient.get<SaleExchangeView[]>("/sale-exchanges"),
+  const { data: exchangesPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("sale-exchanges", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<SaleExchangeView>>("/sale-exchanges", { page: 1, pageSize: 100 }),
   });
-  const { data: sales } = useQuery({
-    queryKey: queryKeys.list("sales"),
-    queryFn: () => apiClient.get<SaleView[]>("/sales"),
+  const exchanges = exchangesPage?.items;
+  const { data: salesPage } = useQuery({
+    queryKey: queryKeys.list("sales", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<SaleView>>("/sales", { page: 1, pageSize: 100 }),
   });
+  const sales = salesPage?.items;
   const { data: products } = useQuery({
     queryKey: queryKeys.list("products", { pageSize: 100 }),
     queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),

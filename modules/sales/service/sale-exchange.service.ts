@@ -11,8 +11,14 @@ import { inventoryService } from "@/modules/inventory/service/inventory.service"
 import { promotionService } from "@/modules/pricing/service/promotion.service";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
+import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import type { QuoteView } from "@/modules/pricing/types/promotion.types";
-import type { CreateSaleExchangeDto, QuoteSaleExchangeDto } from "../dto/sale-exchange.dto";
+import type {
+  CreateSaleExchangeDto,
+  QuoteSaleExchangeDto,
+  SaleExchangeListDto,
+  SaleExchangeExportDto,
+} from "../dto/sale-exchange.dto";
 import type { SaleExchangeView, SaleExchangeQuoteView } from "../types/sale-exchange.types";
 
 export const saleExchangeService = {
@@ -27,11 +33,35 @@ export const saleExchangeService = {
     return toSaleExchangeView(exchange, taxInclusive);
   },
 
-  async list(tenantId: bigint, scopedWarehouseId: bigint | null = null): Promise<SaleExchangeView[]> {
-    const [exchanges, taxInclusive] = await Promise.all([
-      saleExchangeRepository.findManyByTenant(tenantId, scopedWarehouseId),
+  async list(filter: SaleExchangeListDto): Promise<Paginated<SaleExchangeView>> {
+    const repoFilter = {
+      warehouseId: filter.scopedWarehouseId ?? null,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    };
+    const skip = (filter.page - 1) * filter.pageSize;
+    const [exchanges, total, taxInclusive] = await Promise.all([
+      saleExchangeRepository.findManyByTenant(filter.tenantId, { ...repoFilter, skip, take: filter.pageSize }),
+      saleExchangeRepository.countByTenant(filter.tenantId, repoFilter),
       // One tenant, one setting — resolved once for the whole page.
-      resolveTaxInclusive(tenantId),
+      resolveTaxInclusive(filter.tenantId),
+    ]);
+    return {
+      items: exchanges.map((exchange) => toSaleExchangeView(exchange, taxInclusive)),
+      pagination: buildPagination(filter.page, filter.pageSize, total),
+    };
+  },
+
+  // Same filter as list(), but every matching row — no page/pageSize — for
+  // GET /sale-exchanges/export.
+  async exportList(filter: SaleExchangeExportDto): Promise<SaleExchangeView[]> {
+    const [exchanges, taxInclusive] = await Promise.all([
+      saleExchangeRepository.findManyByTenant(filter.tenantId, {
+        warehouseId: filter.scopedWarehouseId ?? null,
+        dateFrom: filter.dateFrom,
+        dateTo: filter.dateTo,
+      }),
+      resolveTaxInclusive(filter.tenantId),
     ]);
     return exchanges.map((exchange) => toSaleExchangeView(exchange, taxInclusive));
   },

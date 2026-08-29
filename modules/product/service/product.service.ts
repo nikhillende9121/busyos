@@ -6,7 +6,7 @@ import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import { priceListService } from "@/modules/pricing/service/price-list.service";
 import { toProductImageView } from "./product-image-view.mapper";
-import type { CreateProductDto, UpdateProductDto, ProductListDto } from "../dto/product.dto";
+import type { CreateProductDto, UpdateProductDto, ProductListDto, ProductExportDto } from "../dto/product.dto";
 import type { ProductView } from "../types/product.types";
 
 export const productService = {
@@ -37,6 +37,28 @@ export const productService = {
       items: items.map(toProductView),
       pagination: buildPagination(filter.page, filter.pageSize, total),
     };
+  },
+
+  // Same filter as list(), but every matching row — no page/pageSize — for
+  // GET /products/export.
+  async exportList(filter: ProductExportDto): Promise<ProductView[]> {
+    const scopedWarehouseId = filter.scopedWarehouseId ?? null;
+    if (filter.warehouseId !== undefined) {
+      assertWarehouseAccess({ warehouseId: scopedWarehouseId }, filter.warehouseId);
+    }
+    const effectiveWarehouseId = filter.all ? undefined : (filter.warehouseId ?? scopedWarehouseId ?? undefined);
+    const productIds =
+      effectiveWarehouseId !== undefined
+        ? await priceListService.findPricedProductIds(filter.tenantId, effectiveWarehouseId)
+        : undefined;
+
+    const items = await productRepository.findManyByTenant(filter.tenantId, {
+      ...filter,
+      productIds,
+      sortBy: "createdAt",
+      sortDir: "desc",
+    });
+    return items.map(toProductView);
   },
 
   async getById(tenantId: bigint, productId: bigint): Promise<ProductView> {

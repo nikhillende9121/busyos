@@ -10,6 +10,7 @@ vi.mock("@/shared/database/prisma", () => ({
 vi.mock("../repository/purchase-return.repository", () => ({
   purchaseReturnRepository: {
     findManyByTenant: vi.fn(),
+    countByTenant: vi.fn(),
     findByIdForTenant: vi.fn(),
     findPurchaseForTenant: vi.fn(),
     create: vi.fn(),
@@ -73,13 +74,58 @@ describe("purchaseReturnService — warehouse scoping", () => {
 
   it("filters list() by the caller's scoped warehouse", async () => {
     vi.mocked(purchaseReturnRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(purchaseReturnRepository.countByTenant).mockResolvedValue(0);
 
-    await purchaseReturnService.list(1n, undefined, 10n);
+    await purchaseReturnService.list({ tenantId: 1n, scopedWarehouseId: 10n, page: 1, pageSize: 20 });
 
     expect(purchaseReturnRepository.findManyByTenant).toHaveBeenCalledWith(1n, {
       purchaseId: undefined,
       warehouseId: 10n,
+      dateFrom: undefined,
+      dateTo: undefined,
+      skip: 0,
+      take: 20,
     });
+  });
+});
+
+describe("purchaseReturnService.list — pagination & date filter", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(purchaseReturnRepository.findManyByTenant).mockResolvedValue([]);
+    vi.mocked(purchaseReturnRepository.countByTenant).mockResolvedValue(45);
+  });
+
+  it("computes skip from page and pageSize, and returns pagination built from the count", async () => {
+    const result = await purchaseReturnService.list({ tenantId: 1n, page: 3, pageSize: 20 });
+
+    expect(purchaseReturnRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ skip: 40, take: 20 }),
+    );
+    expect(result.pagination).toEqual({ page: 3, pageSize: 20, total: 45, totalPages: 3 });
+  });
+});
+
+describe("purchaseReturnService.exportList", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("fetches every matching row with no skip/take", async () => {
+    vi.mocked(purchaseReturnRepository.findManyByTenant).mockResolvedValue([]);
+    const dateFrom = new Date("2026-01-01T00:00:00.000Z");
+
+    await purchaseReturnService.exportList({ tenantId: 1n, dateFrom });
+
+    const callArgs = vi.mocked(purchaseReturnRepository.findManyByTenant).mock.calls[0][1] as Record<
+      string,
+      unknown
+    >;
+    expect(callArgs).toMatchObject({ dateFrom });
+    expect(callArgs.skip).toBeUndefined();
+    expect(callArgs.take).toBeUndefined();
+    expect(purchaseReturnRepository.countByTenant).not.toHaveBeenCalled();
   });
 });
 

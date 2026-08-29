@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { idString } from "@/shared/validation/id";
+import { idString, optionalIdString } from "@/shared/validation/id";
 import { positiveDecimalString } from "@/shared/validation/decimal";
+import { paginationQueryFields, dateRangeQueryFields } from "@/shared/validation/list-query";
 
 export const createSaleReturnSchema = z.object({
   saleId: idString,
@@ -30,3 +31,20 @@ export const quoteSaleReturnSchema = z.object({
     .min(1, "at least one item is required"),
 });
 export type QuoteSaleReturnInput = z.infer<typeof quoteSaleReturnSchema>;
+
+// dateFrom/dateTo filter on createdAt — a sale return has no date of its
+// own beyond when it was recorded (see
+// modules/sales/repository/sale-return.repository.ts).
+export const listSaleReturnsQuerySchema = z.object({
+  saleId: optionalIdString,
+  ...paginationQueryFields,
+  ...dateRangeQueryFields,
+});
+export type ListSaleReturnsQuery = z.infer<typeof listSaleReturnsQuerySchema>;
+
+// Same filters as the list, minus pagination — see Docs/API_STANDARDS.md -> List Export.
+export const exportSaleReturnsQuerySchema = z.object({
+  saleId: optionalIdString,
+  ...dateRangeQueryFields,
+});
+export type ExportSaleReturnsQuery = z.infer<typeof exportSaleReturnsQuerySchema>;

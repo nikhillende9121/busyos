@@ -17,6 +17,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
 import { LineItemsField } from "@/components/resource/line-items-field";
+import { DateRangeFilter, type DateRange } from "@/components/resource/date-range-filter";
+import { ExportButton } from "@/components/resource/export-button";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -42,16 +44,21 @@ export default function SalesPage() {
   const { can, hasFeature } = useAuth();
   const isCustomerFeatureEnabled = hasFeature("CUSTOMER");
   const [createOpen, setCreateOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [dateRange, setDateRange] = useState<DateRange>({});
 
-  const { data: sales, isLoading } = useQuery({
-    queryKey: queryKeys.list("sales"),
-    queryFn: () => apiClient.get<SaleView[]>("/sales"),
+  const { data: salesPage, isLoading } = useQuery({
+    queryKey: queryKeys.list("sales", { page, ...dateRange }),
+    queryFn: () =>
+      apiClient.get<Paginated<SaleView>>("/sales", { page, pageSize: 20, ...dateRange }),
   });
-  const { data: customers } = useQuery({
-    queryKey: queryKeys.list("customers"),
-    queryFn: () => apiClient.get<CustomerView[]>("/customers"),
+  const sales = salesPage?.items;
+  const { data: customersPage } = useQuery({
+    queryKey: queryKeys.list("customers", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<CustomerView>>("/customers", { page: 1, pageSize: 100 }),
     enabled: isCustomerFeatureEnabled,
   });
+  const customers = customersPage?.items;
   const { data: warehouses } = useQuery({
     queryKey: queryKeys.list("warehouses"),
     queryFn: () => apiClient.get<WarehouseView[]>("/warehouses"),
@@ -147,7 +154,26 @@ export default function SalesPage() {
         )}
       </div>
 
-      <DataTable columns={columns} rows={rows} isLoading={isLoading} getRowId={(row) => row.id} emptyMessage="No sales yet." />
+      <div className="flex items-end justify-between gap-3">
+        <DateRangeFilter
+          value={dateRange}
+          onChange={(next) => {
+            setDateRange(next);
+            setPage(1);
+          }}
+        />
+        <ExportButton resource="sales" params={dateRange} />
+      </div>
+
+      <DataTable
+        columns={columns}
+        rows={rows}
+        isLoading={isLoading}
+        getRowId={(row) => row.id}
+        emptyMessage="No sales yet."
+        pagination={salesPage?.pagination}
+        onPageChange={setPage}
+      />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-2xl">

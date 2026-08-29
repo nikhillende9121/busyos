@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { idString } from "@/shared/validation/id";
 import { nonNegativeDecimalString, positiveDecimalString } from "@/shared/validation/decimal";
+import { paginationQueryFields, dateRangeQueryFields } from "@/shared/validation/list-query";
 
 export const createPurchaseSchema = z.object({
   supplierId: idString,
@@ -35,7 +36,21 @@ export const receivePurchaseSchema = z.object({
 });
 export type ReceivePurchaseInput = z.infer<typeof receivePurchaseSchema>;
 
-export const listPurchasesQuerySchema = z.object({
+const purchaseListFilterFields = {
   status: z.enum(["DRAFT", "ORDERED", "PARTIALLY_RECEIVED", "RECEIVED", "CANCELLED"]).optional(),
+};
+
+// dateFrom/dateTo filter on purchaseDate — see modules/purchase/repository/purchase.repository.ts.
+export const listPurchasesQuerySchema = z.object({
+  ...purchaseListFilterFields,
+  ...paginationQueryFields,
+  ...dateRangeQueryFields,
 });
 export type ListPurchasesQuery = z.infer<typeof listPurchasesQuerySchema>;
+
+// Same filters as the list, minus pagination — see Docs/API_STANDARDS.md -> List Export.
+export const exportPurchasesQuerySchema = z.object({
+  ...purchaseListFilterFields,
+  ...dateRangeQueryFields,
+});
+export type ExportPurchasesQuery = z.infer<typeof exportPurchasesQuerySchema>;

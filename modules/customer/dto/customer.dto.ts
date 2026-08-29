@@ -16,3 +16,17 @@ export type UpdateCustomerDto = {
   customerGroupId?: bigint;
   state?: string;
 };
+
+export type CustomerListDto = {
+  tenantId: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+  page: number;
+  pageSize: number;
+};
+
+export type CustomerExportDto = {
+  tenantId: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+};

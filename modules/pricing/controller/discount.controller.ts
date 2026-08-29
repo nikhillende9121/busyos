@@ -1,18 +1,52 @@
 import type { NextRequest } from "next/server";
-import { createDiscountSchema } from "../schema/discount.schema";
+import { createDiscountSchema, listDiscountsQuerySchema, exportDiscountsQuerySchema } from "../schema/discount.schema";
 import { discountService } from "../service/discount.service";
-import { successResponse } from "@/shared/utils/api-response";
+import { successResponse, csvResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
+import { toCsv } from "@/shared/utils/csv";
 import { idString } from "@/shared/validation/id";
 import type { AuthContext } from "@/shared/middleware/with-api-auth";
 
 type DiscountParams = { id: string };
 
 export const discountController = {
-  async list(_request: NextRequest, auth: AuthContext) {
+  async list(request: NextRequest, auth: AuthContext) {
     try {
-      const discounts = await discountService.list(auth.tenantId);
+      const query = listDiscountsQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const discounts = await discountService.list({
+        tenantId: auth.tenantId,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        page: query.page,
+        pageSize: query.pageSize,
+      });
       return successResponse(discounts, "Discounts retrieved");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
+  // Every row matching the same filters as list(), as a CSV file — see
+  // Docs/API_STANDARDS.md -> List Export.
+  async exportList(request: NextRequest, auth: AuthContext) {
+    try {
+      const query = exportDiscountsQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+      const discounts = await discountService.exportList({
+        tenantId: auth.tenantId,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+      });
+      const csv = toCsv(discounts, [
+        { key: "id", header: "Discount #" },
+        { key: "name", header: "Name" },
+        { key: "type", header: "Type" },
+        { key: "value", header: "Value" },
+        { key: "scope", header: "Scope" },
+        { key: "isActive", header: "Active" },
+        { key: "startDate", header: "Start Date" },
+        { key: "endDate", header: "End Date" },
+      ]);
+      return csvResponse(csv, `discounts-${new Date().toISOString().slice(0, 10)}.csv`);
     } catch (error) {
       return handleRouteError(error);
     }

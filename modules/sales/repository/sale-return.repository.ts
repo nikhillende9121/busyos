@@ -2,16 +2,43 @@ import { prisma } from "@/shared/database/prisma";
 import type { Db } from "@/shared/database/transaction-client";
 import type { Prisma } from "@prisma/client";
 
+type SaleReturnFilter = {
+  saleId?: bigint;
+  warehouseId?: bigint | null;
+  dateFrom?: Date;
+  dateTo?: Date;
+};
+
+function whereClause(tenantId: bigint, filter: SaleReturnFilter): Prisma.SaleReturnWhereInput {
+  return {
+    sale: { tenantId, ...(filter.warehouseId ? { warehouseId: filter.warehouseId } : {}) },
+    ...(filter.saleId !== undefined ? { saleId: filter.saleId } : {}),
+    ...(filter.dateFrom || filter.dateTo
+      ? {
+          createdAt: {
+            ...(filter.dateFrom ? { gte: filter.dateFrom } : {}),
+            ...(filter.dateTo ? { lte: filter.dateTo } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 export const saleReturnRepository = {
-  findManyByTenant(tenantId: bigint, filter: { saleId?: bigint; warehouseId?: bigint | null }) {
+  // skip/take both optional — omitted entirely means "every matching row,"
+  // which is what exportList() wants; list() always supplies both.
+  findManyByTenant(tenantId: bigint, filter: SaleReturnFilter & { skip?: number; take?: number }) {
     return prisma.saleReturn.findMany({
-      where: {
-        sale: { tenantId, ...(filter.warehouseId ? { warehouseId: filter.warehouseId } : {}) },
-        ...(filter.saleId !== undefined ? { saleId: filter.saleId } : {}),
-      },
+      where: whereClause(tenantId, filter),
       include: { items: { include: { saleItem: true } } },
       orderBy: { createdAt: "desc" },
+      ...(filter.skip !== undefined ? { skip: filter.skip } : {}),
+      ...(filter.take !== undefined ? { take: filter.take } : {}),
     });
+  },
+
+  countByTenant(tenantId: bigint, filter: SaleReturnFilter) {
+    return prisma.saleReturn.count({ where: whereClause(tenantId, filter) });
   },
 
   findByIdForTenant(tenantId: bigint, id: bigint) {

@@ -48,3 +48,19 @@ export type ReceiveStockTransferDto = {
   items: ReceiveStockTransferItemDto[];
   scopedWarehouseId?: bigint | null;
 };
+
+export type StockTransferListDto = {
+  tenantId: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+  page: number;
+  pageSize: number;
+  scopedWarehouseId?: bigint | null;
+};
+
+export type StockTransferExportDto = {
+  tenantId: bigint;
+  dateFrom?: Date;
+  dateTo?: Date;
+  scopedWarehouseId?: bigint | null;
+};
