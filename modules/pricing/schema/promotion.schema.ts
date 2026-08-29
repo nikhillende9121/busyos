@@ -9,6 +9,7 @@ export const quoteSchema = z.object({
   couponCode: z.string().min(1).max(50).optional(),
   extraChargeIds: z.array(idString).optional(),
   channel: z.enum(["POS", "ONLINE", "MARKETPLACE", "PHONE"]).optional(),
+  taxInclusive: z.boolean().optional(),
   lines: z
     .array(
       z.object({

@@ -22,9 +22,35 @@ vi.mock("@/modules/sales/service/sale.service", () => ({
   resolveSaleCharges: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock("../service/tax.service", () => ({
+  taxService: {
+    resolveContext: vi.fn(),
+    computeLinesTax: vi.fn(),
+  },
+}));
+
 import { discountRepository } from "../repository/discount.repository";
 import { couponRepository } from "../repository/coupon.repository";
+import { resolveSaleCharges } from "@/modules/sales/service/sale.service";
+import { taxService } from "../service/tax.service";
 import { promotionService } from "../service/promotion.service";
+
+// quote() now always resolves tax context and computes per-line tax (see
+// promotion.service.ts) — these discount/coupon-focused tests don't assert
+// on tax numbers, so give every line zero tax by default rather than
+// hand-tuning a fixed-length mock per test.
+function mockZeroTax() {
+  vi.mocked(taxService.resolveContext).mockResolvedValue({
+    isIntraState: true,
+    taxInclusivePricing: false,
+    defaultTaxRateId: null,
+  } as never);
+  vi.mocked(taxService.computeLinesTax).mockImplementation(
+    (async (_tenantId: bigint, _context: unknown, lines: unknown[]) =>
+      lines.map(() => ({ taxRateId: "1", taxableAmount: "0", components: [], taxTotal: "0" }))) as never,
+  );
+  vi.mocked(resolveSaleCharges).mockResolvedValue([]);
+}
 
 function discountRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -88,6 +114,7 @@ const oneLine = (overrides: Partial<Record<string, unknown>> = {}) => ({
 describe("promotionService.quote — discounts", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mockZeroTax();
   });
 
   it("returns the full subtotal as lineTotal when nothing is applicable", async () => {
@@ -166,6 +193,7 @@ describe("promotionService.quote — discounts", () => {
 describe("promotionService.quote — coupons", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mockZeroTax();
     vi.mocked(discountRepository.findApplicableForProduct).mockResolvedValue([]);
   });
 
@@ -235,6 +263,7 @@ describe("promotionService.quote — coupons", () => {
 describe("promotionService.quote — PRODUCT/CATEGORY-scoped coupons", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mockZeroTax();
     vi.mocked(discountRepository.findApplicableForProduct).mockResolvedValue([]);
   });
 
@@ -326,6 +355,78 @@ describe("promotionService.quote — PRODUCT/CATEGORY-scoped coupons", () => {
   });
 });
 
+describe("promotionService.quote — tax", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(discountRepository.findApplicableForProduct).mockResolvedValue([]);
+  });
+
+  function mockTax(taxTotal: string, taxInclusivePricing: boolean) {
+    vi.mocked(taxService.resolveContext).mockResolvedValue({
+      isIntraState: true,
+      taxInclusivePricing,
+      defaultTaxRateId: 1n,
+    } as never);
+    vi.mocked(taxService.computeLinesTax).mockResolvedValue([
+      {
+        taxRateId: "1",
+        taxableAmount: "200",
+        components: [
+          { component: "CGST", ratePercent: "9", amount: (Number(taxTotal) / 2).toString() },
+          { component: "SGST", ratePercent: "9", amount: (Number(taxTotal) / 2).toString() },
+        ],
+        taxTotal,
+      },
+    ] as never);
+    vi.mocked(resolveSaleCharges).mockResolvedValue([]);
+  }
+
+  it("adds line tax on top of grandTotal when pricing is tax-exclusive", async () => {
+    mockTax("36", false);
+
+    const result = await promotionService.quote(oneLine());
+
+    expect(result.lines[0].tax).toBe("36");
+    expect(result.lines[0].taxes).toEqual([
+      { taxRateId: "1", component: "CGST", ratePercent: "9", amount: "18" },
+      { taxRateId: "1", component: "SGST", ratePercent: "9", amount: "18" },
+    ]);
+    expect(result.taxTotal).toBe("36");
+    expect(result.taxInclusive).toBe(false);
+    // 200 subtotal (no discount) + 36 tax
+    expect(result.grandTotal).toBe("236");
+  });
+
+  it("does not add line tax on top of grandTotal when pricing is tax-inclusive", async () => {
+    mockTax("36", true);
+
+    const result = await promotionService.quote(oneLine({ taxInclusive: true }));
+
+    expect(result.lines[0].tax).toBe("36");
+    expect(result.taxTotal).toBe("36");
+    expect(result.taxInclusive).toBe(true);
+    // Tax is already embedded in the 200 subtotal — not added again.
+    expect(result.grandTotal).toBe("200");
+  });
+
+  it("computes tax on the post-discount lineTotal, not the raw subtotal", async () => {
+    vi.mocked(discountRepository.findApplicableForProduct).mockResolvedValue([
+      discountRow({ type: "FLAT", value: new Prisma.Decimal("50") }),
+    ] as never);
+    mockTax("27", false);
+
+    const result = await promotionService.quote(oneLine());
+
+    expect(taxService.computeLinesTax).toHaveBeenCalledWith(
+      1n,
+      expect.anything(),
+      [{ productId: 100n, lineTotal: "150" }],
+    );
+    // 200 - 50 discount + 27 tax
+    expect(result.grandTotal).toBe("177");
+  });
+});
+
 describe("promotionService.applyQuoteToSale", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -338,9 +439,29 @@ describe("promotionService.applyQuoteToSale", () => {
     };
   }
 
+  // applyQuoteToSale only reads quote.lines/quote.coupon — these tests don't
+  // exercise tax/charges at all, so every QuoteView literal below fills
+  // those newer required fields with zero-value stand-ins via this helper
+  // rather than repeating them seven times.
+  function baseQuote(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      lines: [],
+      subtotal: "0",
+      lineDiscountTotal: "0",
+      coupon: null,
+      charges: [],
+      chargesTotal: "0",
+      chargesTaxTotal: "0",
+      taxTotal: "0",
+      taxInclusive: false,
+      grandTotal: "0",
+      ...overrides,
+    };
+  }
+
   it("persists a SaleDiscount per line discount, linked to the right saleItemId", async () => {
     const tx = fakeTx();
-    const quote = {
+    const quote = baseQuote({
       lines: [
         {
           productId: "100",
@@ -349,13 +470,14 @@ describe("promotionService.applyQuoteToSale", () => {
           lineSubtotal: "200",
           discounts: [{ discountId: "1", name: "Test", amount: "20" }],
           lineTotal: "180",
+          tax: "0",
+          taxes: [],
         },
       ],
       subtotal: "200",
       lineDiscountTotal: "20",
-      coupon: null,
       grandTotal: "180",
-    };
+    });
 
     await promotionService.applyQuoteToSale(tx as never, {
       tenantId: 1n,
@@ -376,7 +498,7 @@ describe("promotionService.applyQuoteToSale", () => {
     await promotionService.applyQuoteToSale(tx as never, {
       tenantId: 1n,
       saleId: 800n,
-      quote: { lines: [], subtotal: "0", lineDiscountTotal: "0", coupon: null, grandTotal: "0" },
+      quote: baseQuote(),
       saleItemIdByProductId: new Map(),
     });
 
@@ -393,13 +515,11 @@ describe("promotionService.applyQuoteToSale", () => {
         tenantId: 1n,
         saleId: 800n,
         customerId: 30n,
-        quote: {
-          lines: [],
+        quote: baseQuote({
           subtotal: "200",
-          lineDiscountTotal: "0",
           coupon: { couponId: "5", code: "SAVE10", amount: "10" },
           grandTotal: "190",
-        },
+        }),
         saleItemIdByProductId: new Map(),
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -418,13 +538,11 @@ describe("promotionService.applyQuoteToSale", () => {
         tenantId: 1n,
         saleId: 800n,
         customerId: 30n,
-        quote: {
-          lines: [],
+        quote: baseQuote({
           subtotal: "200",
-          lineDiscountTotal: "0",
           coupon: { couponId: "5", code: "SAVE10", amount: "10" },
           grandTotal: "190",
-        },
+        }),
         saleItemIdByProductId: new Map(),
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -441,13 +559,11 @@ describe("promotionService.applyQuoteToSale", () => {
         tenantId: 1n,
         saleId: 800n,
         customerId: 30n,
-        quote: {
-          lines: [],
+        quote: baseQuote({
           subtotal: "200",
-          lineDiscountTotal: "0",
           coupon: { couponId: "5", code: "SAVE10", amount: "10" },
           grandTotal: "190",
-        },
+        }),
         saleItemIdByProductId: new Map(),
       }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
@@ -462,13 +578,11 @@ describe("promotionService.applyQuoteToSale", () => {
       tenantId: 1n,
       saleId: 800n,
       customerId: 30n,
-      quote: {
-        lines: [],
+      quote: baseQuote({
         subtotal: "200",
-        lineDiscountTotal: "0",
         coupon: { couponId: "5", code: "SAVE10", amount: "10" },
         grandTotal: "190",
-      },
+      }),
       saleItemIdByProductId: new Map(),
     });
 
@@ -492,7 +606,7 @@ describe("promotionService.applyQuoteToSale", () => {
       tenantId: 1n,
       saleId: 800n,
       customerId: 30n,
-      quote: {
+      quote: baseQuote({
         lines: [
           {
             productId: "100",
@@ -501,13 +615,15 @@ describe("promotionService.applyQuoteToSale", () => {
             lineSubtotal: "200",
             discounts: [{ couponId: "5", name: "SAVE10", amount: "15" }],
             lineTotal: "185",
+            tax: "0",
+            taxes: [],
           },
         ],
         subtotal: "200",
         lineDiscountTotal: "15",
         coupon: { couponId: "5", code: "SAVE10", amount: "15" },
         grandTotal: "185",
-      },
+      }),
       saleItemIdByProductId: new Map([["100", 900n]]),
     });
 

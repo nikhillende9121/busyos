@@ -47,6 +47,7 @@ vi.mock("@/modules/pricing/service/price-list.service", () => ({
 
 vi.mock("@/modules/pricing/service/tax.service", () => ({
   taxService: {
+    resolveTaxInclusivePricing: vi.fn(),
     resolveContext: vi.fn(),
     computeLinesTax: vi.fn(),
     computeChargeTax: vi.fn(),
@@ -67,15 +68,33 @@ import { taxService } from "@/modules/pricing/service/tax.service";
 import { rbacLookup } from "@/shared/middleware/rbac-lookup";
 import { saleService } from "../service/sale.service";
 
-const DEFAULT_TAX_CONTEXT = { isIntraState: true, taxInclusivePricing: false, defaultTaxRateId: null };
-const DEFAULT_LINE_TAX = [{ taxRateId: "1", taxableAmount: "630", components: [], taxTotal: "0" }];
-
+// Matches the single { productId: 100n, quantity: "2" } item every test in
+// this file creates a sale with — a zero-tax, no-charge quote() result.
+// create() now gets tax/charges from quote() itself (see promotion.service.ts
+// and its own dedicated coverage in promotion.service.test.ts), not from
+// taxService directly, so this is the boundary these tests mock.
 const EMPTY_QUOTE = {
-  lines: [],
-  subtotal: "0",
+  lines: [
+    {
+      productId: "100",
+      quantity: "2",
+      unitPrice: "630",
+      lineSubtotal: "1260",
+      discounts: [],
+      lineTotal: "1260",
+      tax: "0",
+      taxes: [],
+    },
+  ],
+  subtotal: "1260",
   lineDiscountTotal: "0",
   coupon: null,
-  grandTotal: "0",
+  charges: [],
+  chargesTotal: "0",
+  chargesTaxTotal: "0",
+  taxTotal: "0",
+  taxInclusive: false,
+  grandTotal: "1260",
 };
 
 function saleRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -121,8 +140,6 @@ describe("saleService — warehouse scoping", () => {
     vi.mocked(saleRepository.findProductForTenant).mockResolvedValue({ id: 100n, categoryId: null } as never);
     vi.mocked(priceListService.resolvePrice).mockResolvedValue({ priceListId: "1", price: "630" } as never);
     vi.mocked(promotionService.quote).mockResolvedValue(EMPTY_QUOTE as never);
-    vi.mocked(taxService.resolveContext).mockResolvedValue(DEFAULT_TAX_CONTEXT as never);
-    vi.mocked(taxService.computeLinesTax).mockResolvedValue(DEFAULT_LINE_TAX as never);
     vi.mocked(saleRepository.findByIdTx).mockResolvedValue(saleRow() as never);
   });
 
@@ -235,8 +252,7 @@ describe("saleService.create", () => {
     vi.mocked(saleRepository.createItem).mockResolvedValue(saleRow().items[0] as never);
     vi.mocked(saleRepository.findDiscountsForSale).mockResolvedValue([]);
     vi.mocked(promotionService.quote).mockResolvedValue(EMPTY_QUOTE as never);
-    vi.mocked(taxService.resolveContext).mockResolvedValue(DEFAULT_TAX_CONTEXT as never);
-    vi.mocked(taxService.computeLinesTax).mockResolvedValue(DEFAULT_LINE_TAX as never);
+    vi.mocked(taxService.resolveTaxInclusivePricing).mockResolvedValue(false);
     vi.mocked(saleRepository.findByIdTx).mockResolvedValue(saleRow() as never);
   });
 
@@ -421,6 +437,12 @@ describe("saleService.create", () => {
   });
 });
 
+// Tax and charges are now computed inside promotionService.quote() itself
+// (see promotion.service.ts, and its own dedicated coverage in
+// promotion.service.test.ts) — create() only consumes and persists
+// quote()'s result, never taxService directly, so these tests drive the
+// numbers through the (mocked) quote() return value rather than through
+// taxService.
 describe("saleService.create — tax engine", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -432,26 +454,30 @@ describe("saleService.create — tax engine", () => {
     vi.mocked(saleRepository.createItem).mockResolvedValue(saleRow().items[0] as never);
     vi.mocked(saleRepository.findDiscountsForSale).mockResolvedValue([]);
     vi.mocked(saleRepository.findByIdTx).mockResolvedValue(saleRow({ status: "DRAFT" }) as never);
-    vi.mocked(promotionService.quote).mockResolvedValue({
-      ...EMPTY_QUOTE,
-      lines: [{ productId: "100", quantity: "2", unitPrice: "630", lineSubtotal: "1260", discounts: [], lineTotal: "1260" }],
-      grandTotal: "1260",
-    } as never);
-    vi.mocked(taxService.resolveContext).mockResolvedValue(DEFAULT_TAX_CONTEXT as never);
   });
 
-  it("computes tax per line via taxService.computeLinesTax and persists the components", async () => {
-    vi.mocked(taxService.computeLinesTax).mockResolvedValue([
-      {
-        taxRateId: "5",
-        taxableAmount: "1260",
-        components: [
-          { component: "CGST", ratePercent: "9", amount: "113.4" },
-          { component: "SGST", ratePercent: "9", amount: "113.4" },
-        ],
-        taxTotal: "226.8",
-      },
-    ] as never);
+  it("persists each line's tax and tax-components exactly as quote() computed them", async () => {
+    vi.mocked(promotionService.quote).mockResolvedValue({
+      ...EMPTY_QUOTE,
+      lines: [
+        {
+          productId: "100",
+          quantity: "2",
+          unitPrice: "630",
+          lineSubtotal: "1260",
+          discounts: [],
+          lineTotal: "1260",
+          tax: "226.8",
+          taxes: [
+            { taxRateId: "5", component: "CGST", ratePercent: "9", amount: "113.4" },
+            { taxRateId: "5", component: "SGST", ratePercent: "9", amount: "113.4" },
+          ],
+        },
+      ],
+      grandTotal: "1486.8",
+      taxTotal: "226.8",
+      taxInclusive: false,
+    } as never);
 
     await saleService.create({
       tenantId: 1n,
@@ -462,24 +488,19 @@ describe("saleService.create — tax engine", () => {
       items: [{ productId: 100n, quantity: "2" }],
     });
 
-    expect(taxService.computeLinesTax).toHaveBeenCalledWith(
-      1n,
-      DEFAULT_TAX_CONTEXT,
-      [{ productId: 100n, lineTotal: "1260" }],
-    );
     const createItemCall = vi.mocked(saleRepository.createItem).mock.calls[0][1] as { tax: Prisma.Decimal };
     expect(createItemCall.tax.toString()).toBe("226.8");
     expect(saleRepository.createItemTaxes).toHaveBeenCalledWith(
       "sale-tx",
       expect.arrayContaining([
-        expect.objectContaining({ component: "CGST", amount: expect.any(Prisma.Decimal) }),
-        expect.objectContaining({ component: "SGST", amount: expect.any(Prisma.Decimal) }),
+        expect.objectContaining({ component: "CGST", taxRateId: 5n, amount: expect.any(Prisma.Decimal) }),
+        expect.objectContaining({ component: "SGST", taxRateId: 5n, amount: expect.any(Prisma.Decimal) }),
       ]),
     );
   });
 
-  it("propagates a no-tax-rate-configured rejection from the tax engine without creating the sale", async () => {
-    vi.mocked(taxService.computeLinesTax).mockRejectedValue(
+  it("propagates a quote() rejection (e.g. no tax rate configured, or a bad extraChargeId) without creating the sale", async () => {
+    vi.mocked(promotionService.quote).mockRejectedValue(
       Object.assign(new Error("no rate"), { code: "VALIDATION_ERROR" }),
     );
 
@@ -497,23 +518,27 @@ describe("saleService.create — tax engine", () => {
     expect(saleRepository.create).not.toHaveBeenCalled();
   });
 
-  it("resolves and attaches extra charges, computing tax on a taxable one", async () => {
-    vi.mocked(taxService.computeLinesTax).mockResolvedValue([
-      { taxRateId: "5", taxableAmount: "1260", components: [], taxTotal: "0" },
-    ] as never);
-    vi.mocked(saleRepository.findExtraChargeForTenant).mockResolvedValue({
-      id: 7n,
-      name: "Shipping",
-      calcType: "FLAT",
-      value: new Prisma.Decimal("50"),
-      isTaxable: true,
-      taxRateId: 5n,
-    } as never);
-    vi.mocked(taxService.computeChargeTax).mockResolvedValue({
-      taxRateId: "5",
-      taxableAmount: "50",
-      components: [{ component: "IGST", ratePercent: "18", amount: "9" }],
+  it("attaches extra charges exactly as quote() resolved them", async () => {
+    vi.mocked(promotionService.quote).mockResolvedValue({
+      ...EMPTY_QUOTE,
+      lines: [
+        {
+          productId: "100",
+          quantity: "2",
+          unitPrice: "630",
+          lineSubtotal: "1260",
+          discounts: [],
+          lineTotal: "1260",
+          tax: "0",
+          taxes: [],
+        },
+      ],
+      charges: [{ extraChargeId: "7", taxRateId: "5", name: "Shipping", amount: "50", taxAmount: "9" }],
+      chargesTotal: "50",
+      chargesTaxTotal: "9",
+      grandTotal: "1319",
       taxTotal: "9",
+      taxInclusive: false,
     } as never);
 
     await saleService.create({
@@ -526,33 +551,10 @@ describe("saleService.create — tax engine", () => {
       extraChargeIds: [7n],
     });
 
-    expect(saleRepository.findExtraChargeForTenant).toHaveBeenCalledWith(1n, 7n);
-    expect(taxService.computeChargeTax).toHaveBeenCalledWith(1n, DEFAULT_TAX_CONTEXT, { amount: "50", taxRateId: 5n });
     expect(saleRepository.createCharge).toHaveBeenCalledWith(
       "sale-tx",
-      expect.objectContaining({ name: "Shipping", taxRateId: 5n }),
+      expect.objectContaining({ name: "Shipping", taxRateId: 5n, extraChargeId: 7n }),
     );
-  });
-
-  it("rejects an extraChargeId that doesn't belong to this tenant", async () => {
-    vi.mocked(taxService.computeLinesTax).mockResolvedValue([
-      { taxRateId: "5", taxableAmount: "1260", components: [], taxTotal: "0" },
-    ] as never);
-    vi.mocked(saleRepository.findExtraChargeForTenant).mockResolvedValue(null);
-
-    await expect(
-      saleService.create({
-        tenantId: 1n,
-        customerId: 30n,
-        warehouseId: 10n,
-        channel: "POS",
-        saleDate: new Date(),
-        items: [{ productId: 100n, quantity: "2" }],
-        extraChargeIds: [999n],
-      }),
-    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
-
-    expect(saleRepository.create).not.toHaveBeenCalled();
   });
 });
 

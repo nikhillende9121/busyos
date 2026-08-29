@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LineItemsField } from "@/components/resource/line-items-field";
@@ -19,14 +20,23 @@ import type { QuoteView } from "@/modules/pricing/types/promotion.types";
 import type { WarehouseView } from "@/modules/warehouse/types/warehouse.types";
 import type { CustomerView } from "@/modules/customer/types/customer.types";
 import type { ProductView } from "@/modules/product/types/product.types";
+import type { ExtraChargeView } from "@/modules/extra-charge/types/extra-charge.types";
 import type { Paginated } from "@/shared/utils/pagination";
 
 const NONE = "__none__";
 
+const CHANNEL_OPTIONS = [
+  { label: "No channel", value: NONE },
+  { label: "POS", value: "POS" },
+  { label: "Online", value: "ONLINE" },
+  { label: "Marketplace", value: "MARKETPLACE" },
+  { label: "Phone", value: "PHONE" },
+];
+
 // A pure preview of modules/pricing/service/promotion.service.ts's quote()
-// — no writes, no coupon redemption — lets a staff member check what
-// discounts/coupons would apply to a cart before actually creating the
-// sale. See app/api/v1/pricing/quote/route.ts.
+// — no writes, no coupon redemption — lets a staff member check the full
+// invoice breakdown (discounts, coupon, extra charges, tax) before actually
+// creating the sale. See app/api/v1/pricing/quote/route.ts.
 export default function PricingQuotePage() {
   const [result, setResult] = useState<QuoteView | null>(null);
 
@@ -42,6 +52,10 @@ export default function PricingQuotePage() {
     queryKey: queryKeys.list("products", { pageSize: 100 }),
     queryFn: () => apiClient.get<Paginated<ProductView>>("/products", { page: 1, pageSize: 100 }),
   });
+  const { data: extraCharges } = useQuery({
+    queryKey: queryKeys.list("extra-charges"),
+    queryFn: () => apiClient.get<ExtraChargeView[]>("/extra-charges"),
+  });
 
   const productOptions = (products?.items ?? []).map((p) => ({ label: `${p.sku} — ${p.name}`, value: p.id }));
   const productLabel = (productId: string) => {
@@ -53,6 +67,9 @@ export default function PricingQuotePage() {
     warehouseId: "",
     customerId: NONE,
     couponCode: "",
+    channel: NONE,
+    extraChargeIds: [] as string[],
+    taxInclusive: false,
     lines: [{ productId: "", quantity: "", unitPrice: "" }],
   };
 
@@ -61,13 +78,19 @@ export default function PricingQuotePage() {
     defaultValues: defaultFormValues,
   });
 
+  const watchedChannel = form.watch("channel");
+
   const quoteMutation = useMutation({
     mutationFn: (values: FieldValues) => apiClient.post<QuoteView>("/pricing/quote", values),
   });
 
   const onSubmit = async (values: FieldValues) => {
     try {
-      const payload = { ...values, couponCode: values.couponCode || undefined };
+      const payload = {
+        ...values,
+        couponCode: values.couponCode || undefined,
+        channel: values.channel === NONE ? undefined : values.channel,
+      };
       const quote = await quoteMutation.mutateAsync(payload);
       setResult(quote);
     } catch (error) {
@@ -80,7 +103,9 @@ export default function PricingQuotePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold font-heading">Quote Simulator</h1>
-        <p className="text-muted-foreground">Preview which discounts/coupons apply to a cart before creating a sale.</p>
+        <p className="text-muted-foreground">
+          Preview the full invoice breakdown — discounts, coupon, extra charges, and tax — before creating a sale.
+        </p>
       </div>
 
       <Card className="max-w-2xl">
@@ -139,10 +164,82 @@ export default function PricingQuotePage() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="couponCode">Coupon code (optional)</Label>
-              <Input id="couponCode" placeholder="WELCOME20" {...form.register("couponCode")} />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="couponCode">Coupon code (optional)</Label>
+                <Input id="couponCode" placeholder="WELCOME20" {...form.register("couponCode")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Channel (optional)</Label>
+                <Controller
+                  control={form.control}
+                  name="channel"
+                  render={({ field }) => (
+                    <Select value={field.value ?? NONE} onValueChange={field.onChange}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CHANNEL_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
             </div>
+
+            <Controller
+              control={form.control}
+              name="taxInclusive"
+              render={({ field }) => (
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={field.value ?? false} onCheckedChange={field.onChange} />
+                  Prices already include tax
+                </label>
+              )}
+            />
+
+            {extraCharges && extraCharges.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Extra charges (optional)</Label>
+                <Controller
+                  control={form.control}
+                  name="extraChargeIds"
+                  render={({ field }) => {
+                    const applicable = extraCharges.filter(
+                      (charge) =>
+                        !charge.applicableChannels ||
+                        charge.applicableChannels.length === 0 ||
+                        watchedChannel === NONE ||
+                        !watchedChannel ||
+                        charge.applicableChannels.includes(watchedChannel),
+                    );
+                    const selected: string[] = field.value ?? [];
+                    return (
+                      <div className="grid grid-cols-2 gap-1.5 rounded-md border p-3">
+                        {applicable.map((charge) => (
+                          <label key={charge.id} className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={selected.includes(charge.id)}
+                              onCheckedChange={(checked) => {
+                                field.onChange(
+                                  checked ? [...selected, charge.id] : selected.filter((id) => id !== charge.id),
+                                );
+                              }}
+                            />
+                            {charge.name} ({charge.calcType === "FLAT" ? charge.value : `${charge.value}%`})
+                          </label>
+                        ))}
+                      </div>
+                    );
+                  }}
+                />
+              </div>
+            )}
 
             <LineItemsField
               control={form.control}
@@ -166,6 +263,11 @@ export default function PricingQuotePage() {
         <Card className="max-w-2xl">
           <CardHeader>
             <CardTitle>Result</CardTitle>
+            <CardDescription>
+              {result.taxInclusive
+                ? "Prices already include tax — the breakdown below shows how much of the total is tax, not an amount added on top."
+                : "Tax is added on top of the discounted subtotal."}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Table>
@@ -176,6 +278,7 @@ export default function PricingQuotePage() {
                   <TableHead>Subtotal</TableHead>
                   <TableHead>Discounts</TableHead>
                   <TableHead>Line total</TableHead>
+                  <TableHead>Tax</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -190,10 +293,40 @@ export default function PricingQuotePage() {
                         : line.discounts.map((d) => `${d.name} (-${d.amount})`).join(", ")}
                     </TableCell>
                     <TableCell>{line.lineTotal}</TableCell>
+                    <TableCell>
+                      {Number(line.tax) === 0
+                        ? "—"
+                        : `${line.tax} (${line.taxes.map((t) => `${t.component} ${t.ratePercent}%`).join(" + ")})`}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+
+            {result.charges.length > 0 && (
+              <div className="space-y-1 text-sm">
+                <p className="font-medium">Extra charges</p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Charge</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Tax</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {result.charges.map((charge, index) => (
+                      <TableRow key={index}>
+                        <TableCell>{charge.name}</TableCell>
+                        <TableCell>{charge.amount}</TableCell>
+                        <TableCell>{charge.taxAmount}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
             <div className="space-y-1 text-sm">
               <p>
                 Subtotal: <span className="font-medium">{result.subtotal}</span>
@@ -206,6 +339,15 @@ export default function PricingQuotePage() {
                   Coupon {result.coupon.code}: <span className="font-medium">-{result.coupon.amount}</span>
                 </p>
               )}
+              {result.charges.length > 0 && (
+                <p>
+                  Extra charges: <span className="font-medium">{result.chargesTotal}</span>
+                </p>
+              )}
+              <p>
+                Tax {result.taxInclusive ? "(included)" : "(added)"}:{" "}
+                <span className="font-medium">{result.taxTotal}</span>
+              </p>
               <p className="text-base">
                 Grand total: <span className="font-semibold">{result.grandTotal}</span>
               </p>

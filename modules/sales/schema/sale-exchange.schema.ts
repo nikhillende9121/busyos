@@ -25,6 +25,7 @@ export const createSaleExchangeSchema = z.object({
     .min(1, "at least one replacement item is required"),
   couponCode: z.string().min(1).max(50).optional(),
   extraChargeIds: z.array(idString).optional(),
+  taxInclusive: z.boolean().optional(),
   paymentMethod: z.enum(["CASH", "CARD", "BANK_TRANSFER", "UPI", "CHEQUE", "CREDIT"]),
 });
 export type CreateSaleExchangeInput = z.infer<typeof createSaleExchangeSchema>;
@@ -51,5 +52,6 @@ export const quoteSaleExchangeSchema = z.object({
     .min(1, "at least one replacement item is required"),
   couponCode: z.string().min(1).max(50).optional(),
   extraChargeIds: z.array(idString).optional(),
+  taxInclusive: z.boolean().optional(),
 });
 export type QuoteSaleExchangeInput = z.infer<typeof quoteSaleExchangeSchema>;

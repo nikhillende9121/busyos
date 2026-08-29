@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import type { Sale, SaleChannel, SaleItem, SaleItemTax, SaleDiscount, SaleCharge, SaleStatus, Customer, Tenant, TenantSetting, Product } from "@prisma/client";
+import type { Sale, SaleChannel, SaleItem, SaleItemTax, SaleDiscount, SaleCharge, SaleStatus, Customer, Tenant, TenantSetting, Product, TaxComponent } from "@prisma/client";
 import { prisma } from "@/shared/database/prisma";
 import { saleRepository } from "../repository/sale.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
@@ -19,6 +19,24 @@ import type { SaleView } from "../types/sale.types";
 // complete() rather than the online fulfillment pipeline below.
 function initialStatus(channel: SaleChannel): SaleStatus {
   return channel === "POS" ? "COMPLETED" : "PENDING_PAYMENT";
+}
+
+// `toSaleView` needs to know whether *this* tenant's pricing is tax-inclusive
+// to total a sale correctly (see the comment on it below) — every read path
+// (list/get/lifecycle actions) resolves it fresh via this helper rather than
+// hardcoding a default, since `create()` is the only place a `TaxContext` is
+// already in scope.
+//
+// NOTE: this reads the tenant's *current* setting, not what was in effect
+// when the sale was actually created — correct as long as a tenant doesn't
+// flip `taxInclusivePricing` after sales already exist under the old value.
+// Nothing on `Sale` itself records which mode a given sale was computed
+// under (unlike `SaleItemTax`, which snapshots its own rate/component so it
+// never depends on the live `TaxRate` row). If that ever becomes a real
+// problem, the fix is a `Sale.taxInclusive` column snapshotted at creation
+// time, the same way `SaleItemTax` already snapshots its rate.
+export async function resolveTaxInclusive(tenantId: bigint): Promise<boolean> {
+  return taxService.resolveTaxInclusivePricing(tenantId);
 }
 
 // Online/marketplace/phone fulfillment: CONFIRMED -> PROCESSING -> PACKED
@@ -48,21 +66,29 @@ const STOCK_DECREMENTED_STATUSES = new Set<SaleStatus>(["CONFIRMED", "PROCESSING
 
 export const saleService = {
   async list(filter: SaleListDto): Promise<SaleView[]> {
-    const sales = await saleRepository.findManyByTenant(filter.tenantId, {
-      status: filter.status as never,
-      channel: filter.channel as never,
-      warehouseId: filter.scopedWarehouseId ?? undefined,
-    });
-    return sales.map((sale) => toSaleView(sale));
+    const [sales, taxInclusive] = await Promise.all([
+      saleRepository.findManyByTenant(filter.tenantId, {
+        status: filter.status as never,
+        channel: filter.channel as never,
+        warehouseId: filter.scopedWarehouseId ?? undefined,
+      }),
+      // One tenant, one setting — resolved once for the whole page rather
+      // than once per sale.
+      resolveTaxInclusive(filter.tenantId),
+    ]);
+    return sales.map((sale) => toSaleView(sale, taxInclusive));
   },
 
   async getById(tenantId: bigint, saleId: bigint, scopedWarehouseId: bigint | null = null): Promise<SaleView> {
-    const sale = await saleRepository.findByIdForTenant(tenantId, saleId);
+    const [sale, taxInclusive] = await Promise.all([
+      saleRepository.findByIdForTenant(tenantId, saleId),
+      resolveTaxInclusive(tenantId),
+    ]);
     if (!sale) {
       throw new AppError("RESOURCE_NOT_FOUND", "Sale not found");
     }
     assertWarehouseAccess({ warehouseId: scopedWarehouseId }, sale.warehouseId);
-    return toSaleView(sale);
+    return toSaleView(sale, taxInclusive);
   },
 
   // A coupon (if supplied) is applied — and, if it has a usage limit,
@@ -123,12 +149,20 @@ export const saleService = {
 
     // Computed before opening the transaction: an invalid/inapplicable
     // coupon should fail fast, not after the sale row already exists.
+    // Tax and charges are computed inside quote() itself now (see
+    // promotion.service.ts) — passing extraChargeIds/channel/taxInclusive
+    // through means create() reads their result below instead of
+    // recomputing them a second time, so the preview and what actually
+    // gets persisted can never disagree.
     const quote = await promotionService.quote({
       tenantId: dto.tenantId,
       warehouseId: dto.warehouseId,
       customerId: dto.customerId ?? undefined,
       customerGroupId: customer?.customerGroupId ?? undefined,
       couponCode: dto.couponCode,
+      extraChargeIds: dto.extraChargeIds,
+      channel: dto.channel,
+      taxInclusive: dto.taxInclusive,
       lines: dto.items.map((item, index) => ({
         productId: item.productId,
         categoryId: products.get(item.productId.toString())?.categoryId ?? undefined,
@@ -136,24 +170,6 @@ export const saleService = {
         unitPrice: resolvedPrices[index],
       })),
     });
-
-    // Tax is computed on quote().lineTotal (post-discount/coupon) — see
-    // Docs/business-rules/discounts-and-coupons.md's order of operations.
-    // Also computed before opening the transaction, same reasoning as the
-    // quote itself: a missing tax rate should fail fast.
-    const taxContext = await taxService.resolveContext({
-      tenantId: dto.tenantId,
-      warehouseId: dto.warehouseId,
-      customerId: dto.customerId ?? undefined,
-      taxInclusivePricing: dto.taxInclusive,
-    });
-    const lineTaxResults = await taxService.computeLinesTax(
-      dto.tenantId,
-      taxContext,
-      quote.lines.map((line) => ({ productId: BigInt(line.productId), lineTotal: line.lineTotal })),
-    );
-
-    const resolvedCharges = await resolveSaleCharges(dto.tenantId, taxContext, dto.extraChargeIds, quote.grandTotal, dto.channel);
 
     const sale = await prisma.$transaction(async (tx) => {
       const status = initialStatus(dto.channel);
@@ -169,22 +185,27 @@ export const saleService = {
 
       const saleItemIdByProductId = new Map<string, bigint>();
       for (const [index, item] of dto.items.entries()) {
-        const lineTax = lineTaxResults[index];
+        const lineTax = quote.lines[index];
         const createdItem = await saleRepository.createItem(tx, {
           saleId: created.id,
           productId: item.productId,
           quantity: new Prisma.Decimal(item.quantity),
           price: new Prisma.Decimal(resolvedPrices[index]),
-          tax: new Prisma.Decimal(lineTax.taxTotal),
+          tax: new Prisma.Decimal(lineTax.tax),
         });
         saleItemIdByProductId.set(item.productId.toString(), createdItem.id);
 
         await saleRepository.createItemTaxes(
           tx,
-          lineTax.components.map((component) => ({
+          lineTax.taxes.map((component) => ({
             saleItemId: createdItem.id,
-            taxRateId: BigInt(lineTax.taxRateId),
-            component: component.component,
+            // Always populated for a line's own tax (unlike a charge's,
+            // which is legitimately nullable when the charge isn't taxable).
+            taxRateId: BigInt(component.taxRateId!),
+            // Always one of the 4 GST components — computeLineTax
+            // (tax.service.ts) is the sole source of this string, the
+            // QuoteLineTaxComponentView view type just doesn't re-narrow it.
+            component: component.component as TaxComponent,
             ratePercent: new Prisma.Decimal(component.ratePercent),
             amount: new Prisma.Decimal(component.amount),
           })),
@@ -199,11 +220,11 @@ export const saleService = {
         saleItemIdByProductId,
       });
 
-      for (const charge of resolvedCharges) {
+      for (const charge of quote.charges) {
         await saleRepository.createCharge(tx, {
           saleId: created.id,
-          extraChargeId: charge.extraChargeId,
-          taxRateId: charge.taxRateId,
+          extraChargeId: BigInt(charge.extraChargeId),
+          taxRateId: charge.taxRateId ? BigInt(charge.taxRateId) : null,
           name: charge.name,
           amount: new Prisma.Decimal(charge.amount),
           taxAmount: new Prisma.Decimal(charge.taxAmount),
@@ -234,7 +255,9 @@ export const saleService = {
       return saleRepository.findByIdTx(tx, created.id);
     });
 
-    return toSaleView(sale);
+    // Reuse what quote() already resolved rather than querying
+    // TenantSetting again.
+    return toSaleView(sale, quote.taxInclusive);
   },
 
   // Stock decreases here, on confirmation — not at DRAFT/PENDING_PAYMENT
@@ -278,7 +301,7 @@ export const saleService = {
       return { ...newSale, items: sale.items, discounts: sale.discounts, charges: sale.charges };
     });
 
-    return toSaleView(updated);
+    return toSaleView(updated, await resolveTaxInclusive(tenantId));
   },
 
   // POS-only shortcut (CONFIRMED -> COMPLETED, no further inventory change —
@@ -300,7 +323,10 @@ export const saleService = {
       throw new AppError("VALIDATION_ERROR", `Only a CONFIRMED sale can be completed, not ${sale.status}`);
     }
     const updated = await saleRepository.updateStatus(prisma, saleId, "COMPLETED");
-    return toSaleView({ ...updated, items: sale.items, discounts: sale.discounts, charges: sale.charges });
+    return toSaleView(
+      { ...updated, items: sale.items, discounts: sale.discounts, charges: sale.charges },
+      await resolveTaxInclusive(tenantId),
+    );
   },
 
   // The online/marketplace/phone fulfillment pipeline — no inventory impact
@@ -342,7 +368,10 @@ export const saleService = {
 
     if (!STOCK_DECREMENTED_STATUSES.has(sale.status)) {
       const updated = await saleRepository.updateStatus(prisma, saleId, "CANCELLED");
-      return toSaleView({ ...updated, items: sale.items, discounts: sale.discounts, charges: sale.charges });
+      return toSaleView(
+        { ...updated, items: sale.items, discounts: sale.discounts, charges: sale.charges },
+        await resolveTaxInclusive(tenantId),
+      );
     }
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -364,7 +393,7 @@ export const saleService = {
       return { ...newSale, items: sale.items, discounts: sale.discounts, charges: sale.charges };
     });
 
-    return toSaleView(updated);
+    return toSaleView(updated, await resolveTaxInclusive(tenantId));
   },
 };
 
@@ -393,7 +422,10 @@ async function advanceFulfillment(
     );
   }
   const updated = await saleRepository.updateStatus(prisma, saleId, nextStatus);
-  return toSaleView({ ...updated, items: sale.items, discounts: sale.discounts, charges: sale.charges });
+  return toSaleView(
+    { ...updated, items: sale.items, discounts: sale.discounts, charges: sale.charges },
+    await resolveTaxInclusive(tenantId),
+  );
 }
 
 // The server is the sole source of truth for what a line item costs — a
@@ -521,7 +553,12 @@ export function toSaleView(
     discounts?: SaleDiscount[];
     charges?: SaleCharge[];
   },
-  taxInclusive: boolean = true,
+  // No default — every caller must resolve the tenant's actual current
+  // setting (resolveTaxInclusive) or reuse an already-resolved TaxContext
+  // from create(), rather than silently assuming one. Getting this wrong is
+  // exactly what caused sale totals to double-count tax under inclusive
+  // pricing (see the comment above totalAmountNum).
+  taxInclusive: boolean,
 ): SaleView {
   const prefix = sale.tenant?.settings?.invoicePrefix ?? "INV-";
   const year = sale.saleDate ? new Date(sale.saleDate).getFullYear() : new Date().getFullYear();
@@ -575,7 +612,16 @@ export function toSaleView(
   const chargesTaxTotalNum = charges.reduce((sum, charge) => sum + Number(charge.taxAmount), 0);
 
   const totalTaxNum = itemTaxTotalNum + chargesTaxTotalNum;
-  const totalAmountNum = subtotalNum - discountTotalNum + totalTaxNum + chargesAmountNum;
+  // Tax-inclusive: item.amount/charge.amount already contain their own tax
+  // (tax.service.ts's computeLineTax only backs it out internally to split
+  // into CGST/SGST/IGST — it never shrinks the stored price/charge amount),
+  // so adding totalTaxNum on top here would charge it twice. taxAmount is
+  // still reported below for the breakdown; it just isn't part of the total.
+  // See Docs/business-rules/taxation.md -> Tax-Inclusive vs. Tax-Exclusive
+  // Pricing: "the grand total is unchanged either way."
+  const totalAmountNum = taxInclusive
+    ? subtotalNum - discountTotalNum + chargesAmountNum
+    : subtotalNum - discountTotalNum + totalTaxNum + chargesAmountNum;
 
   return {
     id: sale.id.toString(),

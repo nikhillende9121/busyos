@@ -117,6 +117,10 @@ export const promotionService = {
         lineSubtotal: lineSubtotal.toString(),
         discounts: lineDiscounts,
         lineTotal: runningAmount.toString(),
+        // Filled in below, once every line's post-discount/coupon lineTotal
+        // is known — computeLinesTax needs the whole batch at once.
+        tax: "0",
+        taxes: [],
       });
     }
 
@@ -141,39 +145,78 @@ export const promotionService = {
       }
     }
 
+    // Resolved unconditionally now — every line needs tax regardless of
+    // whether extra charges were requested (previously this whole block,
+    // taxContext included, was skipped entirely when neither extraChargeIds
+    // nor channel was given, which meant a quote with no charges never
+    // computed tax at all).
+    const taxContext: TaxContext = await taxService.resolveContext({
+      tenantId: input.tenantId,
+      warehouseId: input.warehouseId,
+      customerId: input.customerId,
+      taxInclusivePricing: input.taxInclusive,
+    });
+
+    // Computed on each line's post-discount/coupon lineTotal — see
+    // Docs/business-rules/discounts-and-coupons.md's order of operations
+    // and tax.service.ts's own top comment ("price -> discounts -> coupon
+    // -> HERE").
+    const lineTaxResults = await taxService.computeLinesTax(
+      input.tenantId,
+      taxContext,
+      lineViews.map((line) => ({ productId: BigInt(line.productId), lineTotal: line.lineTotal })),
+    );
+    let lineTaxTotal = new Prisma.Decimal(0);
+    lineViews.forEach((line, index) => {
+      const lineTax = lineTaxResults[index];
+      line.tax = lineTax.taxTotal;
+      line.taxes = lineTax.components.map((component) => ({
+        taxRateId: lineTax.taxRateId,
+        component: component.component,
+        ratePercent: component.ratePercent,
+        amount: component.amount,
+      }));
+      lineTaxTotal = lineTaxTotal.add(lineTax.taxTotal);
+    });
+
+    // resolveSaleCharges already self-limits to [] cheaply when neither
+    // extraChargeIds nor channel is given (see sale.service.ts) — safe and
+    // cheap to call unconditionally rather than special-case "no charges
+    // requested" here too.
+    const charges = await resolveSaleCharges(
+      input.tenantId,
+      taxContext,
+      input.extraChargeIds,
+      grandTotal.toString(),
+      input.channel,
+    );
+
     const chargeViews: QuoteChargeView[] = [];
     let chargesTotal = new Prisma.Decimal(0);
     let chargesTaxTotal = new Prisma.Decimal(0);
-
-    if (input.extraChargeIds?.length || input.channel) {
-      const taxContext: TaxContext = await taxService.resolveContext({
-        tenantId: input.tenantId,
-        warehouseId: input.warehouseId,
-        customerId: input.customerId,
+    for (const charge of charges) {
+      chargesTotal = chargesTotal.add(charge.amount);
+      chargesTaxTotal = chargesTaxTotal.add(charge.taxAmount);
+      chargeViews.push({
+        extraChargeId: charge.extraChargeId.toString(),
+        taxRateId: charge.taxRateId?.toString() ?? null,
+        name: charge.name,
+        amount: charge.amount,
+        taxAmount: charge.taxAmount,
       });
-
-      const charges = await resolveSaleCharges(
-        input.tenantId,
-        taxContext,
-        input.extraChargeIds,
-        grandTotal.toString(),
-        input.channel,
-      );
-
-      for (const charge of charges) {
-        const amt = new Prisma.Decimal(charge.amount);
-        const taxAmt = new Prisma.Decimal(charge.taxAmount);
-        chargesTotal = chargesTotal.add(amt);
-        chargesTaxTotal = chargesTaxTotal.add(taxAmt);
-        chargeViews.push({
-          extraChargeId: charge.extraChargeId.toString(),
-          name: charge.name,
-          amount: charge.amount,
-          taxAmount: charge.taxAmount,
-        });
-      }
-      grandTotal = grandTotal.add(chargesTotal).add(chargesTaxTotal);
     }
+
+    // Tax-inclusive: lineTotal/charge.amount already contain their own tax
+    // (computeLineTax only backs it out internally to split into
+    // CGST/SGST/IGST — it never shrinks the amount it was given), so adding
+    // lineTaxTotal/chargesTaxTotal on top here would charge it twice. Same
+    // bug and same fix as sale.service.ts's toSaleView — see
+    // Docs/business-rules/taxation.md -> Tax-Inclusive vs. Tax-Exclusive
+    // Pricing. taxTotal is still reported below for the GST breakdown; it
+    // just isn't always additive into grandTotal.
+    grandTotal = taxContext.taxInclusivePricing
+      ? grandTotal.add(chargesTotal)
+      : grandTotal.add(lineTaxTotal).add(chargesTotal).add(chargesTaxTotal);
 
     return {
       lines: lineViews,
@@ -183,6 +226,8 @@ export const promotionService = {
       charges: chargeViews,
       chargesTotal: chargesTotal.toString(),
       chargesTaxTotal: chargesTaxTotal.toString(),
+      taxTotal: lineTaxTotal.add(chargesTaxTotal).toString(),
+      taxInclusive: taxContext.taxInclusivePricing,
       grandTotal: grandTotal.toString(),
     };
   },

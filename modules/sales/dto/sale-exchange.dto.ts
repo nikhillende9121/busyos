@@ -20,6 +20,9 @@ export type CreateSaleExchangeDto = {
   // see Docs/business-rules/sale-exchange.md.
   couponCode?: string;
   extraChargeIds?: bigint[];
+  // Falls back to the tenant's TenantSetting.taxInclusivePricing when unset
+  // — same optionality as CreateSaleDto.taxInclusive.
+  taxInclusive?: boolean;
   // How the settlement difference (either direction) is collected/refunded.
   paymentMethod: PaymentMethod;
   createdBy?: bigint;
@@ -35,5 +38,6 @@ export type QuoteSaleExchangeDto = {
   newItems: CreateSaleExchangeNewItemDto[];
   couponCode?: string;
   extraChargeIds?: bigint[];
+  taxInclusive?: boolean;
   scopedWarehouseId?: bigint | null;
 };

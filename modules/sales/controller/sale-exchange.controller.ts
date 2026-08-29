@@ -46,6 +46,7 @@ export const saleExchangeController = {
         })),
         couponCode: input.couponCode,
         extraChargeIds: input.extraChargeIds?.map((id) => BigInt(id)),
+        taxInclusive: input.taxInclusive,
         paymentMethod: input.paymentMethod,
         createdBy: auth.userId,
         scopedWarehouseId: auth.warehouseId,
@@ -75,6 +76,7 @@ export const saleExchangeController = {
         })),
         couponCode: input.couponCode,
         extraChargeIds: input.extraChargeIds?.map((id) => BigInt(id)),
+        taxInclusive: input.taxInclusive,
         scopedWarehouseId: auth.warehouseId,
       });
       return successResponse(result, "Sale exchange quote computed");

@@ -1,15 +1,14 @@
 import { Prisma } from "@prisma/client";
-import type { ExchangeDirection, Sale, SaleItem, SaleDiscount } from "@prisma/client";
+import type { ExchangeDirection, Sale, SaleItem, SaleDiscount, TaxComponent } from "@prisma/client";
 import { prisma } from "@/shared/database/prisma";
 import { saleRepository } from "../repository/sale.repository";
 import { saleReturnRepository } from "../repository/sale-return.repository";
 import { saleExchangeRepository } from "../repository/sale-exchange.repository";
 import type { SaleExchangeWithDetails } from "../repository/sale-exchange.repository";
 import { computeProratedRefundUnitPrice, RETURNABLE_SALE_STATUSES, toSaleReturnView } from "./sale-return.service";
-import { resolveItemPrice, resolveSaleCharges, toSaleView } from "./sale.service";
+import { resolveItemPrice, resolveTaxInclusive, toSaleView } from "./sale.service";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
 import { promotionService } from "@/modules/pricing/service/promotion.service";
-import { taxService } from "@/modules/pricing/service/tax.service";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import type { QuoteView } from "@/modules/pricing/types/promotion.types";
@@ -18,16 +17,23 @@ import type { SaleExchangeView, SaleExchangeQuoteView } from "../types/sale-exch
 
 export const saleExchangeService = {
   async getById(tenantId: bigint, id: bigint): Promise<SaleExchangeView> {
-    const exchange = await saleExchangeRepository.findByIdForTenant(tenantId, id);
+    const [exchange, taxInclusive] = await Promise.all([
+      saleExchangeRepository.findByIdForTenant(tenantId, id),
+      resolveTaxInclusive(tenantId),
+    ]);
     if (!exchange) {
       throw new AppError("RESOURCE_NOT_FOUND", "Sale exchange not found");
     }
-    return toSaleExchangeView(exchange);
+    return toSaleExchangeView(exchange, taxInclusive);
   },
 
   async list(tenantId: bigint, scopedWarehouseId: bigint | null = null): Promise<SaleExchangeView[]> {
-    const exchanges = await saleExchangeRepository.findManyByTenant(tenantId, scopedWarehouseId);
-    return exchanges.map(toSaleExchangeView);
+    const [exchanges, taxInclusive] = await Promise.all([
+      saleExchangeRepository.findManyByTenant(tenantId, scopedWarehouseId),
+      // One tenant, one setting — resolved once for the whole page.
+      resolveTaxInclusive(tenantId),
+    ]);
+    return exchanges.map((exchange) => toSaleExchangeView(exchange, taxInclusive));
   },
 
   // One atomic transaction: return the old item(s) (inventory IN), sell the
@@ -35,7 +41,7 @@ export const saleExchangeService = {
   // Payment, and link all three via SaleExchange — see
   // Docs/business-rules/sale-exchange.md.
   async create(dto: CreateSaleExchangeDto): Promise<SaleExchangeView> {
-    const { originalSale, returnLines, resolvedPrices, quote, lineTaxResults, resolvedCharges, direction, differenceAmount } =
+    const { originalSale, returnLines, resolvedPrices, quote, direction, differenceAmount } =
       await resolveExchange(dto);
 
     const created = await prisma.$transaction(async (tx) => {
@@ -87,22 +93,27 @@ export const saleExchangeService = {
 
       const saleItemIdByProductId = new Map<string, bigint>();
       for (const [index, item] of dto.newItems.entries()) {
-        const lineTax = lineTaxResults[index];
+        const lineTax = quote.lines[index];
         const createdItem = await saleRepository.createItem(tx, {
           saleId: newSale.id,
           productId: item.productId,
           quantity: new Prisma.Decimal(item.quantity),
           price: new Prisma.Decimal(resolvedPrices[index]),
-          tax: new Prisma.Decimal(lineTax.taxTotal),
+          tax: new Prisma.Decimal(lineTax.tax),
         });
         saleItemIdByProductId.set(item.productId.toString(), createdItem.id);
 
         await saleRepository.createItemTaxes(
           tx,
-          lineTax.components.map((component) => ({
+          lineTax.taxes.map((component) => ({
             saleItemId: createdItem.id,
-            taxRateId: BigInt(lineTax.taxRateId),
-            component: component.component,
+            // Always populated for a line's own tax (unlike a charge's,
+            // which is legitimately nullable when the charge isn't taxable).
+            taxRateId: BigInt(component.taxRateId!),
+            // Always one of the 4 GST components — computeLineTax
+            // (tax.service.ts) is the sole source of this string, the
+            // QuoteLineTaxComponentView view type just doesn't re-narrow it.
+            component: component.component as TaxComponent,
             ratePercent: new Prisma.Decimal(component.ratePercent),
             amount: new Prisma.Decimal(component.amount),
           })),
@@ -131,11 +142,11 @@ export const saleExchangeService = {
         saleItemIdByProductId,
       });
 
-      for (const charge of resolvedCharges) {
+      for (const charge of quote.charges) {
         await saleRepository.createCharge(tx, {
           saleId: newSale.id,
-          extraChargeId: charge.extraChargeId,
-          taxRateId: charge.taxRateId,
+          extraChargeId: BigInt(charge.extraChargeId),
+          taxRateId: charge.taxRateId ? BigInt(charge.taxRateId) : null,
           name: charge.name,
           amount: new Prisma.Decimal(charge.amount),
           taxAmount: new Prisma.Decimal(charge.taxAmount),
@@ -180,7 +191,7 @@ export const saleExchangeService = {
       });
     });
 
-    return toSaleExchangeView(created);
+    return toSaleExchangeView(created, await resolveTaxInclusive(dto.tenantId));
   },
 
   // Read-only mirror of create(): same resolveExchange computation
@@ -190,8 +201,7 @@ export const saleExchangeService = {
   // create() is what guarantees this preview and the eventual persisted
   // result can never disagree — see INVOICE_CALCULATION_LOGIC.md.
   async quote(dto: QuoteSaleExchangeDto): Promise<SaleExchangeQuoteView> {
-    const { returnLines, resolvedPrices, quote, lineTaxResults, resolvedCharges, differenceAmount, direction } =
-      await resolveExchange(dto);
+    const { returnLines, resolvedPrices, quote, differenceAmount, direction } = await resolveExchange(dto);
 
     const returnItems = returnLines.map((line) => ({
       saleItemId: line.item.id.toString(),
@@ -204,19 +214,12 @@ export const saleExchangeService = {
       quantity: item.quantity,
       amount: quote.lines[index]?.lineTotal ?? resolvedPrices[index],
     }));
-    const chargesTotal = resolvedCharges
-      .reduce((sum, charge) => sum.add(charge.amount), new Prisma.Decimal(0))
-      .toString();
-    const taxTotal = lineTaxResults
-      .reduce((sum, lineTax) => sum.add(lineTax.taxTotal), new Prisma.Decimal(0))
-      .add(resolvedCharges.reduce((sum, charge) => sum.add(charge.taxAmount), new Prisma.Decimal(0)))
-      .toString();
 
     return {
       returnItems,
       newItems,
-      chargesTotal,
-      taxTotal,
+      chargesTotal: quote.chargesTotal,
+      taxTotal: quote.taxTotal,
       differenceAmount: differenceAmount.toString(),
       differenceDirection: direction,
     };
@@ -227,16 +230,15 @@ type ResolvedExchangeLine = { item: SaleItem; quantity: Prisma.Decimal; refundAm
 
 // Shared by create() and quote(): values the returned side exactly like a
 // standalone SaleReturn, prices+discounts+taxes the replacement side
-// through the same pipeline as a normal new Sale, and computes the
-// settlement difference. No writes.
+// through the same pipeline as a normal new Sale (promotionService.quote()
+// now computes tax/charges internally — see promotion.service.ts), and
+// computes the settlement difference. No writes.
 async function resolveExchange(dto: CreateSaleExchangeDto | QuoteSaleExchangeDto): Promise<{
   originalSale: Sale & { items: SaleItem[]; discounts: SaleDiscount[] };
   returnLines: ResolvedExchangeLine[];
   returnRefundTotal: Prisma.Decimal;
   resolvedPrices: string[];
   quote: QuoteView;
-  lineTaxResults: Awaited<ReturnType<typeof taxService.computeLinesTax>>;
-  resolvedCharges: Awaited<ReturnType<typeof resolveSaleCharges>>;
   newItemsTotal: Prisma.Decimal;
   difference: Prisma.Decimal;
   direction: ExchangeDirection;
@@ -313,6 +315,8 @@ async function resolveExchange(dto: CreateSaleExchangeDto | QuoteSaleExchangeDto
     warehouseId: originalSale.warehouseId,
     customerId: originalSale.customerId ?? undefined,
     couponCode: dto.couponCode,
+    extraChargeIds: dto.extraChargeIds,
+    taxInclusive: dto.taxInclusive,
     lines: dto.newItems.map((item, index) => ({
       productId: item.productId,
       categoryId: products.get(item.productId.toString())?.categoryId ?? undefined,
@@ -321,25 +325,14 @@ async function resolveExchange(dto: CreateSaleExchangeDto | QuoteSaleExchangeDto
     })),
   });
 
-  const taxContext = await taxService.resolveContext({
-    tenantId: dto.tenantId,
-    warehouseId: originalSale.warehouseId,
-    customerId: originalSale.customerId ?? undefined,
-  });
-  const lineTaxResults = await taxService.computeLinesTax(
-    dto.tenantId,
-    taxContext,
-    quote.lines.map((line) => ({ productId: BigInt(line.productId), lineTotal: line.lineTotal })),
-  );
-  const resolvedCharges = await resolveSaleCharges(dto.tenantId, taxContext, dto.extraChargeIds, quote.grandTotal);
-
-  // Tax-inclusive — this is what the customer actually owes for the new
-  // items, unlike the tax-exclusive return side above.
-  const newItemsTotal = lineTaxResults
-    .reduce((sum, lineTax) => sum.add(lineTax.taxTotal), new Prisma.Decimal(quote.grandTotal))
-    .add(
-      resolvedCharges.reduce((sum, charge) => sum.add(charge.amount).add(charge.taxAmount), new Prisma.Decimal(0)),
-    );
+  // What the customer actually owes for the new items — tax included,
+  // unlike the tax-exclusive return side above. quote.grandTotal is already
+  // inclusive-aware (see promotion.service.ts): it adds line/charge tax on
+  // top under exclusive pricing, and leaves it embedded (not double-added)
+  // under inclusive pricing — same reasoning as sale.service.ts's
+  // toSaleView. See Docs/business-rules/taxation.md -> Tax-Inclusive vs.
+  // Tax-Exclusive Pricing.
+  const newItemsTotal = new Prisma.Decimal(quote.grandTotal);
 
   const difference = newItemsTotal.sub(returnRefundTotal);
   const direction: ExchangeDirection = difference.isZero()
@@ -355,8 +348,6 @@ async function resolveExchange(dto: CreateSaleExchangeDto | QuoteSaleExchangeDto
     returnRefundTotal,
     resolvedPrices,
     quote,
-    lineTaxResults,
-    resolvedCharges,
     newItemsTotal,
     difference,
     direction,
@@ -364,11 +355,11 @@ async function resolveExchange(dto: CreateSaleExchangeDto | QuoteSaleExchangeDto
   };
 }
 
-function toSaleExchangeView(exchange: SaleExchangeWithDetails): SaleExchangeView {
+function toSaleExchangeView(exchange: SaleExchangeWithDetails, taxInclusive: boolean): SaleExchangeView {
   return {
     id: exchange.id.toString(),
     saleReturn: toSaleReturnView(exchange.saleReturn),
-    newSale: toSaleView(exchange.newSale),
+    newSale: toSaleView(exchange.newSale, taxInclusive),
     differenceAmount: exchange.differenceAmount.toString(),
     differenceDirection: exchange.differenceDirection,
     createdAt: exchange.createdAt.toISOString(),

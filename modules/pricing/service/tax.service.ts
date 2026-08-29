@@ -10,6 +10,15 @@ import type { TaxContext, LineTaxResult, TaxComponentResult } from "../types/tax
 // promotionService.quote() lineTotal in; this module never touches
 // price/discount logic.
 export const taxService = {
+  // For a caller that only needs the tenant-wide inclusive/exclusive flag —
+  // e.g. totaling an already-persisted sale for display, where there's no
+  // per-line warehouse/customer context to resolve a full TaxContext for.
+  // See sale.service.ts's toSaleView/resolveTaxInclusive.
+  async resolveTaxInclusivePricing(tenantId: bigint): Promise<boolean> {
+    const settings = await taxRepository.findTenantSettings(tenantId);
+    return settings?.taxInclusivePricing ?? false;
+  },
+
   // Resolved once per sale/purchase, then reused for every line + charge —
   // the seller/buyer state comparison and tax-inclusive flag don't vary
   // per line.
