@@ -44,7 +44,7 @@ function SuperAdminLoginForm() {
       return;
     }
 
-    const next = searchParams.get("next") ?? "/super-admin/tenants";
+    const next = searchParams.get("next") ?? "/super-admin/dashboard";
     router.push(next);
     router.refresh();
   };

@@ -6,7 +6,9 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const NAV_ITEMS = [
+  { label: "Dashboard", href: "/super-admin/dashboard" },
   { label: "Tenants", href: "/super-admin/tenants" },
+  { label: "Contracts", href: "/super-admin/contracts" },
   { label: "Plans", href: "/super-admin/plans" },
   { label: "Features", href: "/super-admin/features" },
 ];
@@ -28,7 +30,7 @@ export default function SuperAdminDashboardLayout({ children }: { children: Reac
     <div className="flex flex-1">
       <aside className="hidden w-60 shrink-0 border-r bg-muted/20 md:flex md:flex-col">
         <div className="flex h-14 items-center border-b px-4">
-          <Link href="/super-admin/tenants" className="font-heading font-semibold">
+          <Link href="/super-admin/dashboard" className="font-heading font-semibold">
             Super Admin
           </Link>
         </div>

@@ -1,16 +1,28 @@
-import type { Plan, TenantSubscription } from "@prisma/client";
+import type { Plan, Tenant, TenantSubscription } from "@prisma/client";
 import { superAdminSubscriptionRepository } from "../repository/subscription.repository";
 import { superAdminTenantRepository } from "../repository/tenant.repository";
 import { superAdminTenantService } from "./tenant.service";
 import { AppError } from "@/shared/errors/app-error";
 import { getActiveSubscription, isSubscriptionExpired } from "@/shared/utils/subscription";
 import type { CreateContractDto, CancelContractDto } from "../dto/subscription.dto";
-import type { ContractView } from "../types/subscription.types";
+import type { ContractView, ContractWithTenantView } from "../types/subscription.types";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const superAdminSubscriptionService = {
   async listForTenant(tenantId: bigint): Promise<ContractView[]> {
     const rows = await superAdminSubscriptionRepository.findManyByTenant(tenantId);
     return rows.map(toContractView);
+  },
+
+  // Platform-wide overview, every tenant — currently-active contracts
+  // first (soonest-expiring on top within that group), everything else
+  // (expired/cancelled) after. The DB query already sorts by endDate
+  // ascending; isCurrentlyActive can only be computed in code (it depends
+  // on "now"), so the active/inactive grouping happens here.
+  async listAll(): Promise<ContractWithTenantView[]> {
+    const rows = await superAdminSubscriptionRepository.findManyAcrossTenants();
+    return rows.map(toContractWithTenantView).sort((a, b) => Number(b.isCurrentlyActive) - Number(a.isCurrentlyActive));
   },
 
   // Blocked while the tenant has a current, unexpired contract — a Super
@@ -59,10 +71,14 @@ export const superAdminSubscriptionService = {
   },
 };
 
-function toContractView(subscription: TenantSubscription & { plan: Plan }): ContractView {
-  const isExpiredByDate =
+function computeIsExpiredByDate(subscription: TenantSubscription): boolean {
+  return (
     (subscription.status === "ACTIVE" || subscription.status === "TRIAL") &&
-    subscription.endDate.getTime() < Date.now();
+    subscription.endDate.getTime() < Date.now()
+  );
+}
+
+function toContractView(subscription: TenantSubscription & { plan: Plan }): ContractView {
   return {
     id: subscription.id.toString(),
     planId: subscription.planId.toString(),
@@ -70,8 +86,23 @@ function toContractView(subscription: TenantSubscription & { plan: Plan }): Cont
     startDate: subscription.startDate.toISOString(),
     endDate: subscription.endDate.toISOString(),
     status: subscription.status,
-    isExpiredByDate,
+    isExpiredByDate: computeIsExpiredByDate(subscription),
     priceAtSigning: subscription.priceAtSigning.toString(),
     createdAt: subscription.createdAt.toISOString(),
+  };
+}
+
+function toContractWithTenantView(
+  subscription: TenantSubscription & { plan: Plan; tenant: Pick<Tenant, "id" | "name" | "code"> },
+): ContractWithTenantView {
+  const isExpiredByDate = computeIsExpiredByDate(subscription);
+  return {
+    ...toContractView(subscription),
+    tenantId: subscription.tenant.id.toString(),
+    tenantName: subscription.tenant.name,
+    tenantCode: subscription.tenant.code,
+    isCurrentlyActive:
+      (subscription.status === "ACTIVE" || subscription.status === "TRIAL") && !isExpiredByDate,
+    daysRemaining: Math.ceil((subscription.endDate.getTime() - Date.now()) / DAY_MS),
   };
 }

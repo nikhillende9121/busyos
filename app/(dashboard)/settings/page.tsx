@@ -100,199 +100,199 @@ export default function SettingsPage() {
         <Badge>{tenant.status}</Badge>
       </div>
 
-      <Card className="max-w-lg">
-        <CardHeader>
-          <CardTitle>Settings</CardTitle>
-          <CardDescription>Company profile and formatting defaults for this tenant.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="companyName">Company name</Label>
-              <Input id="companyName" disabled={!canEdit} {...form.register("companyName")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="gstNumber">GST number</Label>
-              <Input id="gstNumber" disabled={!canEdit} {...form.register("gstNumber")} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+      <div className="flex flex-col items-start gap-6 lg:flex-row">
+        <Card className="w-full max-w-lg">
+          <CardHeader>
+            <CardTitle>Settings</CardTitle>
+            <CardDescription>Company profile and formatting defaults for this tenant.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="currency">Currency (ISO 4217)</Label>
-                <Input id="currency" disabled={!canEdit} placeholder="INR" {...form.register("currency")} />
+                <Label htmlFor="companyName">Company name</Label>
+                <Input id="companyName" disabled={!canEdit} {...form.register("companyName")} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="timezone">Timezone</Label>
-                <Input id="timezone" disabled={!canEdit} placeholder="Asia/Kolkata" {...form.register("timezone")} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="invoicePrefix">Invoice prefix</Label>
-                <Input id="invoicePrefix" disabled={!canEdit} {...form.register("invoicePrefix")} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="decimalPrecision">Decimal precision</Label>
-                <Input
-                  id="decimalPrecision"
-                  type="number"
-                  disabled={!canEdit}
-                  {...form.register("decimalPrecision", { valueAsNumber: true })}
-                />
-              </div>
-            </div>
-            <div className="space-y-4 border-t pt-4">
-              <div>
-                <h3 className="font-heading text-sm font-medium">Taxation (GST)</h3>
-                <p className="text-xs text-muted-foreground">
-                  Used to decide CGST+SGST (same state) vs IGST (different state) — see Tax Rates.
-                </p>
+                <Label htmlFor="gstNumber">GST number</Label>
+                <Input id="gstNumber" disabled={!canEdit} {...form.register("gstNumber")} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Home state</Label>
-                  <Controller
-                    control={form.control}
-                    name="homeState"
-                    render={({ field }) => (
-                      <Select value={field.value ?? ""} onValueChange={field.onChange} disabled={!canEdit}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Not set" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {INDIAN_STATE_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
+                  <Label htmlFor="currency">Currency (ISO 4217)</Label>
+                  <Input id="currency" disabled={!canEdit} placeholder="INR" {...form.register("currency")} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Default tax rate</Label>
-                  <Controller
-                    control={form.control}
-                    name="defaultTaxRateId"
-                    render={({ field }) => (
-                      <Select
-                        value={field.value ?? UNSET_TAX_RATE}
-                        onValueChange={field.onChange}
-                        disabled={!canEdit}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="None" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={UNSET_TAX_RATE}>None</SelectItem>
-                          {(taxRates ?? []).map((rate) => (
-                            <SelectItem key={rate.id} value={rate.id}>
-                              {rate.name} ({rate.ratePercent}%)
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
+                  <Label htmlFor="timezone">Timezone</Label>
+                  <Input id="timezone" disabled={!canEdit} placeholder="Asia/Kolkata" {...form.register("timezone")} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="invoicePrefix">Invoice prefix</Label>
+                  <Input id="invoicePrefix" disabled={!canEdit} {...form.register("invoicePrefix")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="decimalPrecision">Decimal precision</Label>
+                  <Input
+                    id="decimalPrecision"
+                    type="number"
+                    disabled={!canEdit}
+                    {...form.register("decimalPrecision", { valueAsNumber: true })}
                   />
                 </div>
               </div>
-              <Controller
-                control={form.control}
-                name="taxInclusivePricing"
-                render={({ field }) => (
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="taxInclusivePricing"
-                      checked={Boolean(field.value)}
-                      onCheckedChange={field.onChange}
-                      disabled={!canEdit}
-                    />
-                    <Label htmlFor="taxInclusivePricing" className="font-normal">
-                      Prices already include tax (tax-inclusive pricing)
-                    </Label>
-                  </div>
-                )}
-              />
-            </div>
-            {canEdit && (
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? "Saving…" : "Save settings"}
-              </Button>
-            )}
-          </form>
-        </CardContent>
-      </Card>
-
-      <Card className="max-w-lg">
-        <CardHeader>
-          <CardTitle>Subscription</CardTitle>
-          <CardDescription>
-            Your current contract — managed by the platform, not editable here.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isSubscriptionLoading ? (
-            <p className="text-muted-foreground">Loading…</p>
-          ) : !subscription ? (
-            <p className="text-muted-foreground">No active subscription on record.</p>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="space-y-4 border-t pt-4">
                 <div>
-                  <p className="font-heading text-lg font-semibold">{subscription.plan.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    ₹{Number(subscription.priceAtSigning).toLocaleString(undefined, { minimumFractionDigits: 2 })} /{" "}
-                    {subscription.plan.billingCycle === "YEARLY" ? "year" : "month"}
+                  <h3 className="font-heading text-sm font-medium">Taxation (GST)</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Used to decide CGST+SGST (same state) vs IGST (different state) — see Tax Rates.
                   </p>
                 </div>
-                <Badge variant={subscription.isExpiredByDate ? "destructive" : "default"}>
-                  {subscription.isExpiredByDate
-                    ? `Expired ${Math.abs(subscription.daysRemaining)} day${Math.abs(subscription.daysRemaining) === 1 ? "" : "s"} ago`
-                    : `Renews in ${subscription.daysRemaining} day${subscription.daysRemaining === 1 ? "" : "s"}`}
-                </Badge>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Home state</Label>
+                    <Controller
+                      control={form.control}
+                      name="homeState"
+                      render={({ field }) => (
+                        <Select value={field.value ?? ""} onValueChange={field.onChange} disabled={!canEdit}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Not set" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {INDIAN_STATE_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Default tax rate</Label>
+                    <Controller
+                      control={form.control}
+                      name="defaultTaxRateId"
+                      render={({ field }) => (
+                        <Select
+                          value={field.value ?? UNSET_TAX_RATE}
+                          onValueChange={field.onChange}
+                          disabled={!canEdit}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="None" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={UNSET_TAX_RATE}>None</SelectItem>
+                            {(taxRates ?? []).map((rate) => (
+                              <SelectItem key={rate.id} value={rate.id}>
+                                {rate.name} ({rate.ratePercent}%)
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                </div>
+                <Controller
+                  control={form.control}
+                  name="taxInclusivePricing"
+                  render={({ field }) => (
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="taxInclusivePricing"
+                        checked={Boolean(field.value)}
+                        onCheckedChange={field.onChange}
+                        disabled={!canEdit}
+                      />
+                      <Label htmlFor="taxInclusivePricing" className="font-normal">
+                        Prices already include tax (tax-inclusive pricing)
+                      </Label>
+                    </div>
+                  )}
+                />
               </div>
+              {canEdit && (
+                <Button type="submit" disabled={form.formState.isSubmitting}>
+                  {form.formState.isSubmitting ? "Saving…" : "Save settings"}
+                </Button>
+              )}
+            </form>
+          </CardContent>
+        </Card>
 
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Contract start</p>
-                  <p>{new Date(subscription.startDate).toLocaleDateString()}</p>
+        <Card className="w-full max-w-lg">
+          <CardHeader>
+            <CardTitle>Subscription</CardTitle>
+            <CardDescription>
+              Your current contract — managed by the platform, not editable here.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isSubscriptionLoading ? (
+              <p className="text-muted-foreground">Loading…</p>
+            ) : !subscription ? (
+              <p className="text-muted-foreground">No active subscription on record.</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-heading text-lg font-semibold">{subscription.plan.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      ₹{Number(subscription.priceAtSigning).toLocaleString(undefined, { minimumFractionDigits: 2 })} /{" "}
+                      {subscription.plan.billingCycle === "YEARLY" ? "year" : "month"}
+                    </p>
+                  </div>
+                  <Badge variant={subscription.isExpiredByDate ? "destructive" : "default"}>
+                    {subscription.isExpiredByDate
+                      ? `Expired ${Math.abs(subscription.daysRemaining)} day${Math.abs(subscription.daysRemaining) === 1 ? "" : "s"} ago`
+                      : `Renews in ${subscription.daysRemaining} day${subscription.daysRemaining === 1 ? "" : "s"}`}
+                  </Badge>
                 </div>
-                <div>
-                  <p className="text-muted-foreground">Contract end</p>
-                  <p>{new Date(subscription.endDate).toLocaleDateString()}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Warehouses</p>
-                  <p>{subscription.plan.maxWarehouses ?? "Unlimited"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Users</p>
-                  <p>{subscription.plan.maxUsers ?? "Unlimited"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Roles</p>
-                  <p>{subscription.plan.maxRoles ?? "Unlimited"}</p>
-                </div>
-              </div>
 
-              <div>
-                <p className="mb-1.5 text-sm text-muted-foreground">Included features</p>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Contract start</p>
+                    <p>{new Date(subscription.startDate).toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Contract end</p>
+                    <p>{new Date(subscription.endDate).toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Warehouses</p>
+                    <p>{subscription.plan.maxWarehouses ?? "Unlimited"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Users</p>
+                    <p>{subscription.plan.maxUsers ?? "Unlimited"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Roles</p>
+                    <p>{subscription.plan.maxRoles ?? "Unlimited"}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-1.5 text-sm text-muted-foreground">Included features</p>
                   {subscription.features.length === 0 ? (
                     <p className="text-sm text-muted-foreground">—</p>
                   ) : (
-                    subscription.features.map((feature) => (
-                      <Badge key={feature.code} variant="outline">
-                        {feature.name}
-                      </Badge>
-                    ))
+                    <ul className="grid list-disc grid-cols-1 gap-x-6 gap-y-1 pl-4 text-sm sm:grid-cols-2">
+                      {subscription.features.map((feature) => (
+                        <li key={feature.code}>{feature.name}</li>
+                      ))}
+                    </ul>
                   )}
                 </div>
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

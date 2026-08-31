@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 vi.mock("../repository/subscription.repository", () => ({
   superAdminSubscriptionRepository: {
     findManyByTenant: vi.fn(),
+    findManyAcrossTenants: vi.fn(),
     findByIdForTenant: vi.fn(),
     create: vi.fn(),
     cancelById: vi.fn(),
@@ -161,5 +162,49 @@ describe("superAdminSubscriptionService.cancel", () => {
     expect(superAdminSubscriptionRepository.cancelById).toHaveBeenCalledWith(1n);
     expect(superAdminTenantService.resyncFeatures).toHaveBeenCalledWith(5n);
     expect(result.status).toBe("CANCELLED");
+  });
+});
+
+describe("superAdminSubscriptionService.listAll", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  function contractRowWithTenant(overrides: Partial<Record<string, unknown>> = {}) {
+    return contractRow({ tenant: { id: 5n, name: "Acme Retail", code: "acme" }, ...overrides });
+  }
+
+  it("maps tenant fields onto each contract", async () => {
+    vi.mocked(superAdminSubscriptionRepository.findManyAcrossTenants).mockResolvedValue([
+      contractRowWithTenant(),
+    ] as never);
+
+    const result = await superAdminSubscriptionService.listAll();
+
+    expect(result[0]).toMatchObject({ tenantId: "5", tenantName: "Acme Retail", tenantCode: "acme" });
+  });
+
+  it("sorts currently-active contracts before expired/cancelled ones, preserving the endDate-ascending order within each group", async () => {
+    const expiredButActiveStatus = contractRowWithTenant({
+      id: 1n,
+      endDate: new Date("2020-01-01"),
+      status: "ACTIVE",
+    });
+    const soonestActive = contractRowWithTenant({ id: 2n, endDate: new Date(Date.now() + 5 * 86400000) });
+    const laterActive = contractRowWithTenant({ id: 3n, endDate: new Date(Date.now() + 50 * 86400000) });
+    const cancelled = contractRowWithTenant({ id: 4n, status: "CANCELLED" });
+    // Repository already returns endDate-ascending — expired-but-ACTIVE
+    // row sorts first by raw date even though it's not really "current".
+    vi.mocked(superAdminSubscriptionRepository.findManyAcrossTenants).mockResolvedValue([
+      expiredButActiveStatus,
+      soonestActive,
+      laterActive,
+      cancelled,
+    ] as never);
+
+    const result = await superAdminSubscriptionService.listAll();
+
+    expect(result.map((c) => c.id)).toEqual(["2", "3", "1", "4"]);
+    expect(result.find((c) => c.id === "1")?.isCurrentlyActive).toBe(false);
   });
 });

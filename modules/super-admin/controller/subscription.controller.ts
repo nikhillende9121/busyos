@@ -10,6 +10,15 @@ type TenantParams = { id: string };
 type SubscriptionParams = { id: string; subscriptionId: string };
 
 export const superAdminSubscriptionController = {
+  async listAll() {
+    try {
+      const contracts = await superAdminSubscriptionService.listAll();
+      return successResponse(contracts, "Contracts retrieved");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
   async list(_request: NextRequest, _auth: SuperAdminAuthContext, params: TenantParams) {
     try {
       const tenantId = idString.parse(params.id);
