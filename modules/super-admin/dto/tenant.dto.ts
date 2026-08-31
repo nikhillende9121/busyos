@@ -20,8 +20,3 @@ export type UploadTenantLogoDto = {
 export type RemoveTenantLogoDto = {
   tenantId: bigint;
 };
-
-export type ChangeTenantPlanDto = {
-  tenantId: bigint;
-  planId: bigint;
-};

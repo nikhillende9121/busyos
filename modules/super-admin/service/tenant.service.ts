@@ -13,7 +13,6 @@ import type {
   UpdateTenantStatusDto,
   UploadTenantLogoDto,
   RemoveTenantLogoDto,
-  ChangeTenantPlanDto,
 } from "../dto/tenant.dto";
 import type { SuperAdminTenantView } from "../types/tenant.types";
 
@@ -72,6 +71,7 @@ export const superAdminTenantService = {
           startDate,
           endDate,
           status: "TRIAL",
+          priceAtSigning: plan.price,
         });
 
         const featureIds = plan.planFeatures.map((pf) => pf.featureId);
@@ -151,41 +151,6 @@ export const superAdminTenantService = {
     await destroyImage(existing.logoPublicId);
     const tenant = await superAdminTenantRepository.updateLogo(dto.tenantId, null);
     return toTenantView(tenant);
-  },
-
-  // Moves a tenant onto a different plan: cancels whatever ACTIVE/TRIAL
-  // subscription it currently has (never deleted — TenantSubscription is
-  // an append-only history, see DATABASE.md) and opens a new one on the
-  // target plan, then resyncs its features to match. This is the only
-  // place a tenant's plan can change after creation — see
-  // Docs/business-rules/feature-catalog.md -> Changing a Tenant's Plan.
-  async changePlan(dto: ChangeTenantPlanDto): Promise<SuperAdminTenantView> {
-    const tenant = await superAdminTenantRepository.findById(dto.tenantId);
-    if (!tenant) {
-      throw new AppError("RESOURCE_NOT_FOUND", "Tenant not found");
-    }
-    const plan = await superAdminTenantRepository.findPlanById(dto.planId);
-    if (!plan) {
-      throw new AppError("VALIDATION_ERROR", "planId does not exist");
-    }
-
-    await prisma.$transaction(async (tx) => {
-      await superAdminTenantRepository.cancelAllActiveSubscriptions(tx, dto.tenantId);
-
-      const startDate = new Date();
-      const endDate = new Date(startDate);
-      endDate.setFullYear(endDate.getFullYear() + 1);
-      await superAdminTenantRepository.createSubscription(tx, {
-        tenantId: dto.tenantId,
-        planId: dto.planId,
-        startDate,
-        endDate,
-        status: "ACTIVE",
-      });
-    });
-
-    await superAdminTenantService.resyncFeatures(dto.tenantId);
-    return superAdminTenantService.getById(dto.tenantId);
   },
 
   // Recomputes a tenant's TenantFeature rows to match its current plan's

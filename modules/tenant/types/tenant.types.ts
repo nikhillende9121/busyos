@@ -22,3 +22,27 @@ export type TenantProfile = {
   status: string;
   settings: TenantSettingsView | null;
 };
+
+// Read-only — there is no edit endpoint for a tenant's own subscription;
+// contracts are managed exclusively by a Super Admin (see
+// modules/super-admin/service/subscription.service.ts) and are immutable
+// once created. null only when a tenant somehow has no subscription on
+// record at all (shouldn't happen post-onboarding).
+export type TenantSubscriptionView = {
+  status: string;
+  // Computed, not stored — see ContractView's identical field
+  // (modules/super-admin/types/subscription.types.ts) for why.
+  isExpiredByDate: boolean;
+  startDate: string;
+  endDate: string;
+  daysRemaining: number;
+  priceAtSigning: string;
+  plan: {
+    name: string;
+    billingCycle: string;
+    maxWarehouses: number | null;
+    maxUsers: number | null;
+    maxRoles: number | null;
+  };
+  features: { code: string; name: string }[];
+};

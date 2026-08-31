@@ -46,27 +46,31 @@ const PERMISSION_CODES = [
 // without Purchase Returns. ROLE/USER/TENANT-settings stay ungated on
 // purpose — see feature-catalog.md for why gating core tenant
 // administration is a support risk, not a real pricing tier.
-const FEATURE_CODES = [
-  "PRODUCT",
-  "CATEGORY",
-  "BRAND",
-  "UNIT",
-  "SUPPLIER",
-  "CUSTOMER",
-  "CUSTOMER_GROUP",
-  "PURCHASE",
-  "PURCHASE_RETURN",
-  "SALES",
-  "SALE_RETURN",
-  "SALE_EXCHANGE",
-  "PRICE_LIST",
-  "DISCOUNT",
-  "COUPON",
-  "INVENTORY",
-  "STOCK_TRANSFER",
-  "EXTRA_CHARGE",
-  "GST_REPORT",
-];
+// `name` is shown as-is to a tenant admin (Subscription card on
+// app/(dashboard)/settings/page.tsx) — keep it a short human label, not
+// the raw code.
+const FEATURE_LABELS: Record<string, string> = {
+  PRODUCT: "Product Catalog",
+  CATEGORY: "Categories",
+  BRAND: "Brands",
+  UNIT: "Units of Measure",
+  SUPPLIER: "Suppliers",
+  CUSTOMER: "Customers",
+  CUSTOMER_GROUP: "Customer Groups",
+  PURCHASE: "Purchasing",
+  PURCHASE_RETURN: "Purchase Returns",
+  SALES: "Sales / POS",
+  SALE_RETURN: "Sale Returns",
+  SALE_EXCHANGE: "Sale Exchanges",
+  PRICE_LIST: "Price Lists",
+  DISCOUNT: "Discounts",
+  COUPON: "Coupons",
+  INVENTORY: "Inventory & Adjustments",
+  STOCK_TRANSFER: "Stock Transfers",
+  EXTRA_CHARGE: "Extra Charges",
+  GST_REPORT: "GST Report",
+};
+const FEATURE_CODES = Object.keys(FEATURE_LABELS);
 
 const DEMO_TENANT_CODE = "demo";
 const DEMO_ADMIN_EMAIL = "admin@demo.test";
@@ -101,10 +105,11 @@ async function main() {
   console.log("Upserting feature catalog...");
   const featureIds = new Map<string, bigint>();
   for (const code of FEATURE_CODES) {
+    const name = FEATURE_LABELS[code];
     const feature = await prisma.feature.upsert({
       where: { code },
-      create: { name: code, code },
-      update: {},
+      create: { name, code },
+      update: { name },
     });
     featureIds.set(code, feature.id);
   }
@@ -155,7 +160,14 @@ async function main() {
     const endDate = new Date(startDate);
     endDate.setFullYear(endDate.getFullYear() + 1);
     await prisma.tenantSubscription.create({
-      data: { tenantId: tenant.id, planId: plan.id, startDate, endDate, status: "ACTIVE" },
+      data: {
+        tenantId: tenant.id,
+        planId: plan.id,
+        startDate,
+        endDate,
+        status: "ACTIVE",
+        priceAtSigning: plan.price,
+      },
     });
   }
 

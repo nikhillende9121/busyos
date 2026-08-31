@@ -3,18 +3,17 @@ import type { Db } from "@/shared/database/transaction-client";
 import type { Prisma, TenantStatus } from "@prisma/client";
 
 // Shared by getActivePlanLimits (shared/utils/plan-limits.ts) — kept here
-// too since the plan-change/resync flow below needs the full subscription
-// row (id, plan+planFeatures), not just the limit fields that helper
-// returns.
+// too since the resync flow below needs the full subscription row (id,
+// plan+planFeatures), not just the limit fields that helper returns.
 const ACTIVE_SUBSCRIPTION_STATUSES: ("ACTIVE" | "TRIAL")[] = ["ACTIVE", "TRIAL"];
 
 // No tenantId scoping anywhere here, deliberately — a Super Admin operates
 // across every tenant (see Docs/business-rules/roles-and-permissions.md ->
 // Super Admin), the one part of the system where that's correct rather
 // than a bug.
-// Current plan, for display/changePlan purposes — most recent ACTIVE/TRIAL
+// Current plan, for display purposes — most recent ACTIVE/TRIAL
 // subscription's plan, name only (id + name is all the tenants list needs
-// to render and let a Super Admin change it).
+// to render).
 const includeCurrentPlan = {
   subscriptions: {
     where: { status: { in: ACTIVE_SUBSCRIPTION_STATUSES } },
@@ -68,26 +67,13 @@ export const superAdminTenantRepository = {
   },
 
   // The tenant's current plan for quota/feature purposes — most recent
-  // ACTIVE/TRIAL subscription. Used by changePlan (to know what to
-  // cancel) and resyncFeatures (to know what the tenant SHOULD have).
+  // ACTIVE/TRIAL subscription. Used by resyncFeatures (to know what the
+  // tenant SHOULD have).
   findActiveSubscription(tenantId: bigint) {
     return prisma.tenantSubscription.findFirst({
       where: { tenantId, status: { in: ACTIVE_SUBSCRIPTION_STATUSES } },
       orderBy: { createdAt: "desc" },
       include: { plan: { include: { planFeatures: true } } },
-    });
-  },
-
-  // Cancels every ACTIVE/TRIAL row, not just the most recent one — a
-  // tenant should have exactly one at a time, but changePlan() calls this
-  // unconditionally rather than trusting findActiveSubscription() (a
-  // single findFirst) to have caught every stray duplicate, e.g. from two
-  // overlapping changePlan calls both reading "current" before either had
-  // written its cancellation.
-  cancelAllActiveSubscriptions(db: Db, tenantId: bigint): Promise<Prisma.BatchPayload> {
-    return db.tenantSubscription.updateMany({
-      where: { tenantId, status: { in: ACTIVE_SUBSCRIPTION_STATUSES } },
-      data: { status: "CANCELLED" },
     });
   },
 

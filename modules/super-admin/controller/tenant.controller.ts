@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { createTenantSchema, updateTenantStatusSchema, changeTenantPlanSchema } from "../schema/tenant.schema";
+import { createTenantSchema, updateTenantStatusSchema } from "../schema/tenant.schema";
 import { superAdminTenantService } from "../service/tenant.service";
 import { successResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
@@ -84,15 +84,4 @@ export const superAdminTenantController = {
     }
   },
 
-  async changePlan(request: NextRequest, _auth: SuperAdminAuthContext, params: TenantParams) {
-    try {
-      const id = idString.parse(params.id);
-      const body = await request.json();
-      const input = changeTenantPlanSchema.parse(body);
-      const tenant = await superAdminTenantService.changePlan({ tenantId: BigInt(id), planId: BigInt(input.planId) });
-      return successResponse(tenant, "Tenant plan changed");
-    } catch (error) {
-      return handleRouteError(error);
-    }
-  },
 };

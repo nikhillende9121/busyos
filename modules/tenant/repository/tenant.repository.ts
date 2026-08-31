@@ -39,4 +39,15 @@ export const tenantRepository = {
   findTaxRateForTenant(tenantId: bigint, id: bigint) {
     return prisma.taxRate.findFirst({ where: { id, tenantId, deletedAt: null } });
   },
+
+  // Same "most recent ACTIVE/TRIAL" shape as shared/utils/subscription.ts's
+  // getActiveSubscription(), plus the plan + its features — the tenant
+  // admin's Subscription card needs the full picture, not just the row.
+  findActiveSubscriptionWithPlan(tenantId: bigint) {
+    return prisma.tenantSubscription.findFirst({
+      where: { tenantId, status: { in: ["ACTIVE", "TRIAL"] } },
+      orderBy: { createdAt: "desc" },
+      include: { plan: { include: { planFeatures: { include: { feature: true } } } } },
+    });
+  },
 };

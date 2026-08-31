@@ -20,7 +20,7 @@ import {
   updateTenantSettingsSchema,
   type UpdateTenantSettingsInput,
 } from "@/modules/tenant/schema/tenant.schema";
-import type { TenantProfile } from "@/modules/tenant/types/tenant.types";
+import type { TenantProfile, TenantSubscriptionView } from "@/modules/tenant/types/tenant.types";
 import type { TaxRateView } from "@/modules/tax-rate/types/tax-rate.types";
 
 const UNSET_TAX_RATE = "__unset__";
@@ -36,6 +36,10 @@ export default function SettingsPage() {
   const { data: taxRates } = useQuery({
     queryKey: queryKeys.list("tax-rates"),
     queryFn: () => apiClient.get<TaxRateView[]>("/tax-rates"),
+  });
+  const { data: subscription, isLoading: isSubscriptionLoading } = useQuery({
+    queryKey: queryKeys.detail("tenants", "me-subscription"),
+    queryFn: () => apiClient.get<TenantSubscriptionView | null>("/tenants/me/subscription"),
   });
 
   const form = useForm<UpdateTenantSettingsInput>({
@@ -216,6 +220,77 @@ export default function SettingsPage() {
               </Button>
             )}
           </form>
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-lg">
+        <CardHeader>
+          <CardTitle>Subscription</CardTitle>
+          <CardDescription>
+            Your current contract — managed by the platform, not editable here.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isSubscriptionLoading ? (
+            <p className="text-muted-foreground">Loading…</p>
+          ) : !subscription ? (
+            <p className="text-muted-foreground">No active subscription on record.</p>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-heading text-lg font-semibold">{subscription.plan.name}</p>
+                  <p className="text-sm text-muted-foreground">
+                    ₹{Number(subscription.priceAtSigning).toLocaleString(undefined, { minimumFractionDigits: 2 })} /{" "}
+                    {subscription.plan.billingCycle === "YEARLY" ? "year" : "month"}
+                  </p>
+                </div>
+                <Badge variant={subscription.isExpiredByDate ? "destructive" : "default"}>
+                  {subscription.isExpiredByDate
+                    ? `Expired ${Math.abs(subscription.daysRemaining)} day${Math.abs(subscription.daysRemaining) === 1 ? "" : "s"} ago`
+                    : `Renews in ${subscription.daysRemaining} day${subscription.daysRemaining === 1 ? "" : "s"}`}
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Contract start</p>
+                  <p>{new Date(subscription.startDate).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Contract end</p>
+                  <p>{new Date(subscription.endDate).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Warehouses</p>
+                  <p>{subscription.plan.maxWarehouses ?? "Unlimited"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Users</p>
+                  <p>{subscription.plan.maxUsers ?? "Unlimited"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Roles</p>
+                  <p>{subscription.plan.maxRoles ?? "Unlimited"}</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-1.5 text-sm text-muted-foreground">Included features</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {subscription.features.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">—</p>
+                  ) : (
+                    subscription.features.map((feature) => (
+                      <Badge key={feature.code} variant="outline">
+                        {feature.name}
+                      </Badge>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

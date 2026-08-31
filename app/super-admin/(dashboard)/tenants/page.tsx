@@ -4,17 +4,21 @@ import { useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Upload, X, ImageOff } from "lucide-react";
+import { Plus, Upload, X, ImageOff, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ConfirmDialog } from "@/components/resource/confirm-dialog";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
 import { superAdminApiClient } from "@/lib/api/super-admin-client";
 import { ApiError } from "@/lib/api/client";
 import type { SuperAdminTenantView } from "@/modules/super-admin/types/tenant.types";
 import type { PlanView } from "@/modules/super-admin/types/plan.types";
+import type { ContractView } from "@/modules/super-admin/types/subscription.types";
 
 const STATUS_OPTIONS = ["ACTIVE", "TRIAL", "SUSPENDED", "CANCELLED"];
 
@@ -61,20 +65,7 @@ export default function SuperAdminTenantsPage() {
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
     },
   });
-  // Cancels the tenant's current subscription and opens a new one on the
-  // chosen plan, then resyncs its TenantFeature rows to match — see
-  // modules/super-admin/service/tenant.service.ts's changePlan().
-  const planMutation = useMutation({
-    mutationFn: ({ id, planId }: { id: string; planId: string }) =>
-      superAdminApiClient.put<SuperAdminTenantView>(`/tenants/${id}/plan`, { planId }),
-    onSuccess: () => {
-      invalidate();
-      toast.success("Tenant plan changed");
-    },
-    onError: (error) => {
-      toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
-    },
-  });
+  const [contractTenant, setContractTenant] = useState<SuperAdminTenantView | null>(null);
 
   const planOptions = (plans ?? []).map((plan) => ({ label: plan.name, value: plan.id }));
 
@@ -82,27 +73,14 @@ export default function SuperAdminTenantsPage() {
     { key: "logo", header: "Logo", render: (row) => <TenantLogoCell tenant={row} onChanged={invalidate} /> },
     { key: "name", header: "Name" },
     { key: "code", header: "Code" },
+    { key: "plan", header: "Plan", render: (row) => row.currentPlanName ?? "No plan" },
     {
-      key: "plan",
-      header: "Plan",
+      key: "contract",
+      header: "Contract",
       render: (row) => (
-        <Select
-          value={row.currentPlanId ?? ""}
-          onValueChange={(planId) => {
-            if (planId && planId !== row.currentPlanId) planMutation.mutate({ id: row.id, planId });
-          }}
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="No plan">{row.currentPlanName ?? "No plan"}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {planOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Button variant="outline" size="sm" onClick={() => setContractTenant(row)}>
+          <FileText className="size-4" /> Manage contract
+        </Button>
       ),
     },
     {
@@ -157,6 +135,16 @@ export default function SuperAdminTenantsPage() {
           onOpenChange={setCreateOpen}
           planOptions={planOptions}
           onSubmit={(values) => createMutation.mutateAsync(values)}
+        />
+      )}
+
+      {contractTenant && (
+        <TenantContractDialog
+          open={Boolean(contractTenant)}
+          onOpenChange={(open) => !open && setContractTenant(null)}
+          tenant={contractTenant}
+          planOptions={planOptions}
+          onChanged={invalidate}
         />
       )}
     </div>
@@ -354,6 +342,209 @@ function CreateTenantDialog({
           </DialogFooter>
         </form>
       </DialogContent>
+    </Dialog>
+  );
+}
+
+type CreateContractFormValues = {
+  planId: string;
+  startDate: string;
+  endDate: string;
+};
+
+const money = (value: string) => Number(value).toLocaleString(undefined, { minimumFractionDigits: 2 });
+
+// Only one active/unexpired contract at a time — creating a new one is
+// blocked server-side (409 CONFLICT, see modules/super-admin/service/
+// subscription.service.ts) while one exists, so this dialog only shows the
+// create form once there truly isn't a current contract, and otherwise
+// offers the explicit Cancel action that's the only way to make room for
+// one early. Contracts themselves are never edited, only created/cancelled.
+function TenantContractDialog({
+  open,
+  onOpenChange,
+  tenant,
+  planOptions,
+  onChanged,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  tenant: SuperAdminTenantView;
+  planOptions: { label: string; value: string }[];
+  onChanged: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [cancelTargetId, setCancelTargetId] = useState<string | null>(null);
+  const form = useForm<CreateContractFormValues>({ defaultValues: { planId: "", startDate: "", endDate: "" } });
+
+  const contractsKey = ["super-admin", "tenants", tenant.id, "subscriptions"];
+  const { data: contracts, isLoading } = useQuery({
+    queryKey: contractsKey,
+    queryFn: () => superAdminApiClient.get<ContractView[]>(`/tenants/${tenant.id}/subscriptions`),
+    enabled: open,
+  });
+
+  const invalidateContracts = () => {
+    queryClient.invalidateQueries({ queryKey: contractsKey });
+    onChanged();
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (values: CreateContractFormValues) =>
+      superAdminApiClient.post<ContractView>(`/tenants/${tenant.id}/subscriptions`, values),
+    onSuccess: () => {
+      invalidateContracts();
+      toast.success("Contract created");
+      form.reset({ planId: "", startDate: "", endDate: "" });
+    },
+    onError: (error) => {
+      toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (subscriptionId: string) =>
+      superAdminApiClient.post<ContractView>(`/tenants/${tenant.id}/subscriptions/${subscriptionId}/cancel`),
+    onSuccess: () => {
+      invalidateContracts();
+      toast.success("Contract cancelled");
+    },
+    onError: (error) => {
+      toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
+    },
+  });
+
+  const current = contracts?.find(
+    (contract) => (contract.status === "ACTIVE" || contract.status === "TRIAL") && !contract.isExpiredByDate,
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{tenant.name} — Contracts</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Plan</TableHead>
+                <TableHead>Price</TableHead>
+                <TableHead>Start</TableHead>
+                <TableHead>End</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    Loading…
+                  </TableCell>
+                </TableRow>
+              ) : !contracts || contracts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    No contracts yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                contracts.map((contract) => (
+                  <TableRow key={contract.id}>
+                    <TableCell>{contract.planName}</TableCell>
+                    <TableCell>{money(contract.priceAtSigning)}</TableCell>
+                    <TableCell>{new Date(contract.startDate).toLocaleDateString()}</TableCell>
+                    <TableCell>{new Date(contract.endDate).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <Badge variant={contract.isExpiredByDate ? "secondary" : contract.status === "CANCELLED" ? "outline" : "default"}>
+                        {contract.isExpiredByDate ? "Expired" : contract.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {contract.id === current?.id && (
+                        <Button variant="ghost" size="sm" onClick={() => setCancelTargetId(contract.id)}>
+                          Cancel
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+
+          {current ? (
+            <p className="text-sm text-muted-foreground">
+              This tenant has an active contract running until {new Date(current.endDate).toLocaleDateString()}.
+              Cancel it above before creating a new one.
+            </p>
+          ) : (
+            <form
+              onSubmit={form.handleSubmit((values) => createMutation.mutateAsync(values))}
+              className="space-y-3 rounded-md border p-3"
+            >
+              <p className="text-sm font-medium">New contract</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Plan</Label>
+                  <Controller
+                    control={form.control}
+                    name="planId"
+                    rules={{ required: true }}
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select plan" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {planOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="startDate">Start date</Label>
+                  <Input id="startDate" type="date" {...form.register("startDate", { required: true })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="endDate">End date</Label>
+                  <Input id="endDate" type="date" {...form.register("endDate", { required: true })} />
+                </div>
+              </div>
+              <Button type="submit" size="sm" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? "Creating…" : "Create contract"}
+              </Button>
+            </form>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+
+      {cancelTargetId && (
+        <ConfirmDialog
+          open={Boolean(cancelTargetId)}
+          onOpenChange={(open) => !open && setCancelTargetId(null)}
+          title="Cancel this contract?"
+          description="The tenant's plan features will be disabled immediately. This cannot be undone."
+          confirmLabel="Cancel contract"
+          destructive
+          onConfirm={async () => {
+            await cancelMutation.mutateAsync(cancelTargetId);
+          }}
+        />
+      )}
     </Dialog>
   );
 }

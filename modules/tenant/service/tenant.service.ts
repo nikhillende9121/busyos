@@ -1,8 +1,10 @@
 import { tenantRepository } from "../repository/tenant.repository";
 import { AppError } from "@/shared/errors/app-error";
 import type { UpdateTenantSettingsDto } from "../dto/tenant.dto";
-import type { TenantProfile } from "../types/tenant.types";
-import type { Tenant, TenantSetting } from "@prisma/client";
+import type { TenantProfile, TenantSubscriptionView } from "../types/tenant.types";
+import type { Tenant, TenantSetting, TenantSubscription, Plan, PlanFeature, Feature } from "@prisma/client";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const tenantService = {
   async getProfile(tenantId: bigint): Promise<TenantProfile> {
@@ -28,7 +30,39 @@ export const tenantService = {
     await tenantRepository.upsertSettings(tenantId, settings);
     return tenantService.getProfile(tenantId);
   },
+
+  async getSubscription(tenantId: bigint): Promise<TenantSubscriptionView | null> {
+    const subscription = await tenantRepository.findActiveSubscriptionWithPlan(tenantId);
+    if (!subscription) {
+      return null;
+    }
+    return toSubscriptionView(subscription);
+  },
 };
+
+function toSubscriptionView(
+  subscription: TenantSubscription & {
+    plan: Plan & { planFeatures: (PlanFeature & { feature: Feature })[] };
+  },
+): TenantSubscriptionView {
+  const isExpiredByDate = subscription.endDate.getTime() < Date.now();
+  return {
+    status: subscription.status,
+    isExpiredByDate,
+    startDate: subscription.startDate.toISOString(),
+    endDate: subscription.endDate.toISOString(),
+    daysRemaining: Math.ceil((subscription.endDate.getTime() - Date.now()) / DAY_MS),
+    priceAtSigning: subscription.priceAtSigning.toString(),
+    plan: {
+      name: subscription.plan.name,
+      billingCycle: subscription.plan.billingCycle,
+      maxWarehouses: subscription.plan.maxWarehouses,
+      maxUsers: subscription.plan.maxUsers,
+      maxRoles: subscription.plan.maxRoles,
+    },
+    features: subscription.plan.planFeatures.map((pf) => ({ code: pf.feature.code, name: pf.feature.name })),
+  };
+}
 
 function toTenantProfile(
   tenant: Tenant & { settings: TenantSetting | null },

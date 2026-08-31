@@ -19,7 +19,6 @@ vi.mock("../repository/tenant.repository", () => ({
     createSubscription: vi.fn(),
     enableFeatures: vi.fn(),
     findActiveSubscription: vi.fn(),
-    cancelAllActiveSubscriptions: vi.fn(),
     findTenantIdsOnPlan: vi.fn(),
     findEnabledFeatureIds: vi.fn(),
     setFeatureEnabled: vi.fn(),
@@ -74,6 +73,7 @@ describe("superAdminTenantService.create", () => {
     vi.resetAllMocks();
     vi.mocked(superAdminTenantRepository.findPlanById).mockResolvedValue({
       id: 1n,
+      price: new Prisma.Decimal("999.00"),
       planFeatures: [{ featureId: 10n }],
     } as never);
     vi.mocked(superAdminTenantRepository.create).mockResolvedValue(tenantRow() as never);
@@ -117,7 +117,7 @@ describe("superAdminTenantService.create", () => {
     );
     expect(superAdminTenantRepository.createSubscription).toHaveBeenCalledWith(
       "tenant-tx",
-      expect.objectContaining({ tenantId: 5n, planId: 1n }),
+      expect.objectContaining({ tenantId: 5n, planId: 1n, priceAtSigning: new Prisma.Decimal("999.00") }),
     );
     expect(superAdminTenantRepository.enableFeatures).toHaveBeenCalledWith("tenant-tx", 5n, [10n]);
     expect(roleService.create).toHaveBeenCalledWith(
@@ -265,54 +265,6 @@ describe("superAdminTenantService.resyncFeatures", () => {
     expect(superAdminTenantRepository.setFeatureEnabled).toHaveBeenCalledWith(expect.anything(), 5n, 20n, true);
     // 30: currently enabled but the plan no longer grants it -> disable
     expect(superAdminTenantRepository.setFeatureEnabled).toHaveBeenCalledWith(expect.anything(), 5n, 30n, false);
-  });
-});
-
-describe("superAdminTenantService.changePlan", () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
-    vi.mocked(superAdminTenantRepository.findById).mockResolvedValue(tenantRow() as never);
-    vi.mocked(superAdminTenantRepository.findPlanById).mockResolvedValue({ id: 2n, planFeatures: [] } as never);
-    vi.mocked(superAdminTenantRepository.findActiveSubscription).mockResolvedValue(null);
-    vi.mocked(superAdminTenantRepository.findEnabledFeatureIds).mockResolvedValue([]);
-  });
-
-  it("rejects a tenant that doesn't exist", async () => {
-    vi.mocked(superAdminTenantRepository.findById).mockResolvedValue(null);
-
-    await expect(superAdminTenantService.changePlan({ tenantId: 999n, planId: 2n })).rejects.toMatchObject({
-      code: "RESOURCE_NOT_FOUND",
-    });
-    expect(superAdminTenantRepository.createSubscription).not.toHaveBeenCalled();
-  });
-
-  it("rejects a planId that doesn't exist", async () => {
-    vi.mocked(superAdminTenantRepository.findPlanById).mockResolvedValue(null);
-
-    await expect(superAdminTenantService.changePlan({ tenantId: 5n, planId: 999n })).rejects.toMatchObject({
-      code: "VALIDATION_ERROR",
-    });
-    expect(superAdminTenantRepository.createSubscription).not.toHaveBeenCalled();
-  });
-
-  it("cancels every active/trial subscription (not just the most recent) before opening a new one", async () => {
-    await superAdminTenantService.changePlan({ tenantId: 5n, planId: 2n });
-
-    expect(superAdminTenantRepository.cancelAllActiveSubscriptions).toHaveBeenCalledWith("tenant-tx", 5n);
-    expect(superAdminTenantRepository.createSubscription).toHaveBeenCalledWith(
-      "tenant-tx",
-      expect.objectContaining({ tenantId: 5n, planId: 2n, status: "ACTIVE" }),
-    );
-  });
-
-  it("cancels unconditionally even when the tenant never had a prior subscription", async () => {
-    await superAdminTenantService.changePlan({ tenantId: 5n, planId: 2n });
-
-    // Always called — cancelAllActiveSubscriptions is a no-op update when
-    // there's nothing to cancel, safer than a findFirst-then-cancel that
-    // could miss a duplicate row.
-    expect(superAdminTenantRepository.cancelAllActiveSubscriptions).toHaveBeenCalledWith("tenant-tx", 5n);
-    expect(superAdminTenantRepository.createSubscription).toHaveBeenCalled();
   });
 });
 

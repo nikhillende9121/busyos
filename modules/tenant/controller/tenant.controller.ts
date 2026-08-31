@@ -20,6 +20,15 @@ export const tenantController = {
     }
   },
 
+  async getSubscription(_request: NextRequest, auth: AuthContext) {
+    try {
+      const subscription = await tenantService.getSubscription(auth.tenantId);
+      return successResponse(subscription, "Subscription retrieved");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
   async updateSettings(request: NextRequest, auth: AuthContext) {
     try {
       const body = await request.json();

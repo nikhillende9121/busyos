@@ -19,8 +19,3 @@ export const updateTenantStatusSchema = z.object({
   status: z.enum(["ACTIVE", "TRIAL", "SUSPENDED", "CANCELLED"]),
 });
 export type UpdateTenantStatusInput = z.infer<typeof updateTenantStatusSchema>;
-
-export const changeTenantPlanSchema = z.object({
-  planId: idString,
-});
-export type ChangeTenantPlanInput = z.infer<typeof changeTenantPlanSchema>;

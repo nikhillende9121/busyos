@@ -5,6 +5,7 @@ vi.mock("../repository/tenant.repository", () => ({
     findByIdWithSettings: vi.fn(),
     upsertSettings: vi.fn(),
     findTaxRateForTenant: vi.fn(),
+    findActiveSubscriptionWithPlan: vi.fn(),
   },
 }));
 
@@ -129,5 +130,75 @@ describe("tenantService.updateSettings", () => {
     await tenantService.updateSettings({ tenantId: 1n, defaultTaxRateId: 5n });
 
     expect(tenantRepository.upsertSettings).toHaveBeenCalledWith(1n, { defaultTaxRateId: 5n });
+  });
+});
+
+describe("tenantService.getSubscription", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns null when the tenant has no subscription on record", async () => {
+    vi.mocked(tenantRepository.findActiveSubscriptionWithPlan).mockResolvedValue(null);
+
+    const result = await tenantService.getSubscription(1n);
+
+    expect(result).toBeNull();
+  });
+
+  it("maps the active subscription, its plan, and feature list", async () => {
+    const endDate = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    vi.mocked(tenantRepository.findActiveSubscriptionWithPlan).mockResolvedValue({
+      status: "ACTIVE",
+      startDate: new Date("2026-01-01T00:00:00.000Z"),
+      endDate,
+      priceAtSigning: { toString: () => "24999.00" },
+      plan: {
+        name: "Growth",
+        billingCycle: "YEARLY",
+        maxWarehouses: 5,
+        maxUsers: 15,
+        maxRoles: 10,
+        planFeatures: [
+          { feature: { code: "SALES", name: "Sales / POS" } },
+          { feature: { code: "DISCOUNT", name: "Discounts" } },
+        ],
+      },
+    } as never);
+
+    const result = await tenantService.getSubscription(1n);
+
+    expect(result).toMatchObject({
+      status: "ACTIVE",
+      isExpiredByDate: false,
+      daysRemaining: 5,
+      priceAtSigning: "24999.00",
+      plan: { name: "Growth", billingCycle: "YEARLY", maxWarehouses: 5, maxUsers: 15, maxRoles: 10 },
+      features: [
+        { code: "SALES", name: "Sales / POS" },
+        { code: "DISCOUNT", name: "Discounts" },
+      ],
+    });
+  });
+
+  it("flags a contract as expired by date once its endDate has passed", async () => {
+    vi.mocked(tenantRepository.findActiveSubscriptionWithPlan).mockResolvedValue({
+      status: "ACTIVE",
+      startDate: new Date("2020-01-01T00:00:00.000Z"),
+      endDate: new Date("2020-06-01T00:00:00.000Z"),
+      priceAtSigning: { toString: () => "999.00" },
+      plan: {
+        name: "Starter",
+        billingCycle: "YEARLY",
+        maxWarehouses: 1,
+        maxUsers: 3,
+        maxRoles: 3,
+        planFeatures: [],
+      },
+    } as never);
+
+    const result = await tenantService.getSubscription(1n);
+
+    expect(result?.isExpiredByDate).toBe(true);
   });
 });

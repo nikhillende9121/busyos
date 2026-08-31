@@ -437,6 +437,10 @@ model TenantSubscription {
   startDate DateTime
   endDate   DateTime
   status    SubscriptionStatus @default(TRIAL)
+  // Snapshot of Plan.price at the moment this contract was created — a
+  // signed contract doesn't silently reprice itself if the Plan's price
+  // changes later. See modules/super-admin/service/subscription.service.ts.
+  priceAtSigning Decimal       @db.Decimal(12, 2)
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
