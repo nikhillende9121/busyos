@@ -16,6 +16,13 @@ export type MeTenantView = {
   invoicePrefix: string | null;
   homeState: string | null;
   taxInclusivePricing: boolean;
+  // The tenant's current ACTIVE/TRIAL TenantSubscription (see
+  // shared/utils/subscription.ts's getActiveSubscription()) — null when
+  // there's no subscription on record at all (e.g. a tenant mid-onboarding).
+  // Drives components/layout/renewal-banner.tsx; daysUntilRenewal is
+  // negative once the subscription has actually lapsed.
+  subscriptionEndDate: string | null;
+  daysUntilRenewal: number | null;
 };
 
 export type MeView = {

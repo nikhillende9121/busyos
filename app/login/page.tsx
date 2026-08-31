@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { GiShoppingBag } from "react-icons/gi";
 import { loginSchema, type LoginInput } from "@/modules/auth/schema/auth.schema";
 import { Button } from "@/components/ui/button";
 import { LoaderButton } from "@/components/ui/loader-button";
@@ -15,32 +16,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { apiClient } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import type { MeView } from "@/modules/auth/types/auth.types";
-
-// A small, purpose-drawn mark (no stock "cash register" icon in lucide-react)
-// standing in for the product's own logo — a POS terminal: screen + keypad.
-function PosMachineIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x="4" y="2" width="16" height="20" rx="3" />
-      <rect x="7" y="5" width="10" height="6" rx="1" />
-      <line x1="7.5" y1="14.5" x2="9.5" y2="14.5" />
-      <line x1="11" y1="14.5" x2="13" y2="14.5" />
-      <line x1="14.5" y1="14.5" x2="16.5" y2="14.5" />
-      <line x1="7.5" y1="17.5" x2="9.5" y2="17.5" />
-      <line x1="11" y1="17.5" x2="13" y2="17.5" />
-      <line x1="14.5" y1="17.5" x2="16.5" y2="17.5" />
-    </svg>
-  );
-}
 
 export default function LoginPage() {
   return (
@@ -115,7 +90,7 @@ function LoginForm() {
       <div className="relative w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-            <PosMachineIcon className="h-7 w-7" />
+            <GiShoppingBag className="h-7 w-7" />
           </div>
           <div className="space-y-1">
             <h1 className="font-heading text-xl font-semibold tracking-tight">RetailX</h1>

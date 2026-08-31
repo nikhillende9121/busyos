@@ -234,14 +234,16 @@ model Plan {
   price         Decimal      @db.Decimal(12, 2)
   billingCycle  BillingCycle
   // Quota a subscribed tenant may not exceed when creating a new
-  // Warehouse/User — null means unlimited. Enforced in
-  // modules/warehouse/service/warehouse.service.ts and
-  // modules/user/service/user.service.ts via shared/utils/plan-limits.ts,
+  // Warehouse/User/Role — null means unlimited. Enforced in
+  // modules/warehouse/service/warehouse.service.ts,
+  // modules/user/service/user.service.ts, and
+  // modules/role/service/role.service.ts via shared/utils/plan-limits.ts,
   // never at the database level (a tenant already over a newly-lowered
   // limit is never retroactively touched — see Docs/business-rules/
   // plan-limits.md).
   maxWarehouses Int?
   maxUsers      Int?
+  maxRoles      Int?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 

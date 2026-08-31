@@ -1,11 +1,12 @@
 import { ImageResponse } from "next/og";
+import { GiShoppingBag } from "react-icons/gi";
 
 export const size = { width: 32, height: 32 };
 export const contentType = "image/png";
 
-// Simplified version of the POS-terminal mark used on the login page
-// (app/login/page.tsx's PosMachineIcon) — the keypad detail doesn't read at
-// favicon size, so only the body + screen survive.
+// Same mark used on the login page (app/login/page.tsx) — react-icons
+// components render as plain <svg>/<path>, which satori (next/og's
+// renderer) supports directly.
 export default function Icon() {
   return new ImageResponse(
     (
@@ -20,14 +21,7 @@ export default function Icon() {
           borderRadius: 7,
         }}
       >
-        <div
-          style={{
-            width: 18,
-            height: 12,
-            background: "#ffffff",
-            borderRadius: 2.5,
-          }}
-        />
+        <GiShoppingBag size={18} color="#ffffff" />
       </div>
     ),
     { ...size },

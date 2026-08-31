@@ -3,6 +3,7 @@ import type { Role, RolePermission, Permission } from "@prisma/client";
 import { prisma } from "@/shared/database/prisma";
 import { roleRepository } from "../repository/role.repository";
 import { AppError } from "@/shared/errors/app-error";
+import { getActivePlanLimits } from "@/shared/utils/plan-limits";
 import type { CreateRoleDto, UpdateRoleDto } from "../dto/role.dto";
 import type { PermissionCatalogEntry, RoleView } from "../types/role.types";
 
@@ -38,6 +39,17 @@ export const roleService = {
   },
 
   async create(dto: CreateRoleDto): Promise<RoleView> {
+    const { maxRoles } = await getActivePlanLimits(dto.tenantId);
+    if (maxRoles !== null) {
+      const currentCount = await roleRepository.countActiveByTenant(dto.tenantId);
+      if (currentCount >= maxRoles) {
+        throw new AppError(
+          "PLAN_LIMIT_REACHED",
+          `Your plan allows up to ${maxRoles} role${maxRoles === 1 ? "" : "s"} — upgrade to add more`,
+        );
+      }
+    }
+
     const permissionIds = await resolvePermissionIds(dto.permissionCodes ?? []);
 
     try {

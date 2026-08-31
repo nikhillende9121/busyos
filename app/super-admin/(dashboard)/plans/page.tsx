@@ -26,6 +26,7 @@ type PlanFormValues = {
   featureCodes: string[];
   maxWarehouses: string;
   maxUsers: string;
+  maxRoles: string;
 };
 
 export default function SuperAdminPlansPage() {
@@ -45,8 +46,8 @@ export default function SuperAdminPlansPage() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["super-admin", "plans"] });
 
   // Blank limit fields must be OMITTED, not sent as "" — the API treats an
-  // omitted maxWarehouses/maxUsers as unlimited, but Number("") is 0, which
-  // would be rejected by the schema's .positive() check instead.
+  // omitted maxWarehouses/maxUsers/maxRoles as unlimited, but Number("") is
+  // 0, which would be rejected by the schema's .positive() check instead.
   const toPayload = (values: PlanFormValues) => ({
     name: values.name,
     price: values.price,
@@ -54,6 +55,7 @@ export default function SuperAdminPlansPage() {
     featureCodes: values.featureCodes,
     maxWarehouses: values.maxWarehouses ? Number(values.maxWarehouses) : undefined,
     maxUsers: values.maxUsers ? Number(values.maxUsers) : undefined,
+    maxRoles: values.maxRoles ? Number(values.maxRoles) : undefined,
   });
 
   const createMutation = useMutation({
@@ -83,6 +85,7 @@ export default function SuperAdminPlansPage() {
     { key: "billingCycle", header: "Billing" },
     { key: "maxWarehouses", header: "Warehouse limit", render: (row) => row.maxWarehouses ?? "Unlimited" },
     { key: "maxUsers", header: "User limit", render: (row) => row.maxUsers ?? "Unlimited" },
+    { key: "maxRoles", header: "Roles limit", render: (row) => row.maxRoles ?? "Unlimited" },
     {
       key: "features",
       header: "Features",
@@ -124,7 +127,15 @@ export default function SuperAdminPlansPage() {
           title="New plan"
           submitLabel="Create plan"
           features={features ?? []}
-          defaultValues={{ name: "", price: "", billingCycle: "MONTHLY", featureCodes: [], maxWarehouses: "", maxUsers: "" }}
+          defaultValues={{
+            name: "",
+            price: "",
+            billingCycle: "MONTHLY",
+            featureCodes: [],
+            maxWarehouses: "",
+            maxUsers: "",
+            maxRoles: "",
+          }}
           onSubmit={async (values) => {
             await createMutation.mutateAsync(values);
           }}
@@ -145,6 +156,7 @@ export default function SuperAdminPlansPage() {
             featureCodes: editingPlan.features,
             maxWarehouses: editingPlan.maxWarehouses?.toString() ?? "",
             maxUsers: editingPlan.maxUsers?.toString() ?? "",
+            maxRoles: editingPlan.maxRoles?.toString() ?? "",
           }}
           onSubmit={async (values) => {
             await updateMutation.mutateAsync({ id: editingPlan.id, values });
@@ -223,7 +235,7 @@ function PlanFormDialog({
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="maxWarehouses">Warehouse limit</Label>
               <Input
@@ -237,6 +249,10 @@ function PlanFormDialog({
             <div className="space-y-1.5">
               <Label htmlFor="maxUsers">User limit</Label>
               <Input id="maxUsers" type="number" min={1} placeholder="Unlimited" {...form.register("maxUsers")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="maxRoles">Roles limit</Label>
+              <Input id="maxRoles" type="number" min={1} placeholder="Unlimited" {...form.register("maxRoles")} />
             </div>
           </div>
           <div className="space-y-1.5">

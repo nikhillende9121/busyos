@@ -43,6 +43,10 @@ export const roleRepository = {
     return count > 0;
   },
 
+  countActiveByTenant(tenantId: bigint): Promise<number> {
+    return prisma.role.count({ where: { tenantId, deletedAt: null } });
+  },
+
   // Validates the caller's submitted codes actually exist in the platform
   // catalog — returned rows may be fewer than requested codes, which the
   // service treats as "some code(s) invalid".

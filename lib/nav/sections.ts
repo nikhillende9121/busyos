@@ -9,8 +9,8 @@
 // shared/middleware/with-api-auth.ts regardless of what the sidebar shows.
 // `feature` must match exactly the `feature:` option the item's backing
 // route(s) pass to withApiAuth — omit it for routes with no feature gate
-// (core admin: Roles/Users/Tenant Settings/Warehouses/Tax Rates/Extra
-// Charges — see shared/constants/permissions.ts's sibling reasoning).
+// (core admin: Roles/Users/Tenant Settings/Warehouses/Tax Rates — see
+// shared/constants/permissions.ts's sibling reasoning).
 export type NavItem = {
   label: string;
   href: string;
@@ -73,8 +73,8 @@ export const NAV_SECTIONS: NavSection[] = [
     title: "Taxation",
     items: [
       { label: "Tax Rates", href: "/tax-rates", permission: "TAX_RATE.VIEW" },
-      { label: "Extra Charges", href: "/extra-charges", permission: "EXTRA_CHARGE.VIEW" },
-      { label: "GST Report", href: "/reports/gst", permission: "SALE.VIEW", feature: "SALES" },
+      { label: "Extra Charges", href: "/extra-charges", permission: "EXTRA_CHARGE.VIEW", feature: "EXTRA_CHARGE" },
+      { label: "GST Report", href: "/reports/gst", permission: "REPORT.VIEW", feature: "GST_REPORT" },
     ],
   },
   {

@@ -3,6 +3,7 @@ import { verifyToken } from "@/shared/auth/jwt";
 import { AppError } from "@/shared/errors/app-error";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
 import { ACTIVE_TENANT_STATUSES } from "@/shared/constants/tenant-status";
+import { getActiveSubscription, isSubscriptionExpired } from "@/shared/utils/subscription";
 import { rbacLookup } from "./rbac-lookup";
 
 // The Request Pipeline every protected route runs through, in this exact
@@ -87,6 +88,13 @@ async function runPipeline(
   // 2. Resolve Tenant + 3. Subscription Validation
   const tenant = await rbacLookup.findTenantById(tenantId);
   if (!tenant || !ACTIVE_TENANT_STATUSES.has(tenant.status)) {
+    throw new AppError("SUBSCRIPTION_EXPIRED", "This tenant's account is not active");
+  }
+  // A tenant can stay Tenant.status ACTIVE indefinitely (nothing flips it
+  // automatically) while its TenantSubscription.endDate has already
+  // passed — this is what actually cuts off an already-logged-in session
+  // on its next request once the plan lapses by date, not just new logins.
+  if (isSubscriptionExpired(await getActiveSubscription(tenantId))) {
     throw new AppError("SUBSCRIPTION_EXPIRED", "This tenant's account is not active");
   }
 

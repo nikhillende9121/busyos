@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeftRight } from "lucide-react";
+import { GiShoppingBag } from "react-icons/gi";
 import { cn } from "@/lib/utils";
 import { NAV_SECTIONS } from "@/lib/nav/sections";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -19,7 +20,10 @@ export function Sidebar() {
             // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary URL, not a local/static asset
             <img src={user.tenantLogoUrl} alt="" className="h-8 max-w-36 object-contain" />
           ) : (
-            "RetailX"
+            <>
+              <GiShoppingBag className="size-5 text-primary" />
+              RetailX
+            </>
           )}
         </Link>
       </div>

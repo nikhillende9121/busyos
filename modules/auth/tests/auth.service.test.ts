@@ -29,9 +29,20 @@ vi.mock("@/shared/middleware/rbac-lookup", () => ({
   },
 }));
 
+// Fully mocked (not vi.importOriginal) — the real module imports
+// shared/database/prisma, which requires live DB_* env vars at import
+// time. isSubscriptionExpired is reimplemented here rather than imported,
+// since it's a small, stable, pure predicate.
+vi.mock("@/shared/utils/subscription", () => ({
+  getActiveSubscription: vi.fn(),
+  isSubscriptionExpired: (subscription: { endDate: Date } | null) =>
+    subscription !== null && subscription.endDate.getTime() < Date.now(),
+}));
+
 import { authRepository } from "../repository/auth.repository";
 import { verifyToken } from "@/shared/auth/jwt";
 import { rbacLookup } from "@/shared/middleware/rbac-lookup";
+import { getActiveSubscription } from "@/shared/utils/subscription";
 import { authService } from "../service/auth.service";
 
 const TEST_PASSWORD = "Password123";
@@ -54,6 +65,7 @@ function activeUser(overrides: Record<string, unknown> = {}) {
 describe("authService.login", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getActiveSubscription).mockResolvedValue(null);
   });
 
   it("returns a token pair for valid credentials", async () => {
@@ -102,11 +114,21 @@ describe("authService.login", () => {
       authService.login({ email: "user@acme.com", password: TEST_PASSWORD }),
     ).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
   });
+
+  it("rejects login once the tenant's subscription has expired by date, even with an ACTIVE status", async () => {
+    vi.mocked(authRepository.findActiveUserByEmail).mockResolvedValue(activeUser() as never);
+    vi.mocked(getActiveSubscription).mockResolvedValue({ endDate: new Date("2020-01-01") } as never);
+
+    await expect(
+      authService.login({ email: "user@acme.com", password: TEST_PASSWORD }),
+    ).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
+  });
 });
 
 describe("authService.refresh", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getActiveSubscription).mockResolvedValue(null);
   });
 
   it("re-validates current tenant/user state rather than trusting the token alone", async () => {
@@ -141,11 +163,22 @@ describe("authService.refresh", () => {
       code: "UNAUTHENTICATED",
     });
   });
+
+  it("rejects refresh once the tenant's subscription has expired by date, even with an ACTIVE status", async () => {
+    vi.mocked(verifyToken).mockReturnValue({ sub: "10", tenantId: "1", roleId: "2" });
+    vi.mocked(authRepository.findTenantById).mockResolvedValue({ id: 1n, status: "ACTIVE" } as never);
+    vi.mocked(getActiveSubscription).mockResolvedValue({ endDate: new Date("2020-01-01") } as never);
+
+    await expect(authService.refresh({ refreshToken: "some-refresh-token" })).rejects.toMatchObject({
+      code: "UNAUTHENTICATED",
+    });
+  });
 });
 
 describe("authService.me", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getActiveSubscription).mockResolvedValue(null);
   });
 
   it("returns the caller's identity and effective permission list", async () => {
@@ -201,6 +234,8 @@ describe("authService.me", () => {
         invoicePrefix: "INV-",
         homeState: "Maharashtra",
         taxInclusivePricing: false,
+        subscriptionEndDate: null,
+        daysUntilRenewal: null,
       },
       warehouseId: null,
       warehouseName: null,
@@ -245,6 +280,25 @@ describe("authService.me", () => {
 
     expect(result.tenantLogoUrl).toContain("tenants/1/logo/abc");
     expect(result.tenant.logoUrl).toContain("tenants/1/logo/abc");
+  });
+
+  it("computes daysUntilRenewal from the tenant's active subscription end date", async () => {
+    vi.mocked(authRepository.findUserWithRoleById).mockResolvedValue({
+      id: 10n,
+      tenantId: 1n,
+      name: "Admin User",
+      email: "admin@acme.com",
+      role: { id: 2n, name: "Admin" },
+      tenant: { id: 1n, name: "Acme Corp", code: "acme", status: "ACTIVE", logoPublicId: null },
+    } as never);
+    vi.mocked(rbacLookup.listPermissionCodesForRole).mockResolvedValue([]);
+    const endDate = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    vi.mocked(getActiveSubscription).mockResolvedValue({ endDate } as never);
+
+    const result = await authService.me({ userId: 10n, tenantId: 1n, roleId: 2n, warehouseId: null });
+
+    expect(result.tenant.subscriptionEndDate).toBe(endDate.toISOString());
+    expect(result.tenant.daysUntilRenewal).toBe(5);
   });
 
   it("rejects when the user no longer exists (deleted after the token was issued)", async () => {

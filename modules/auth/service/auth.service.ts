@@ -4,6 +4,7 @@ import { signAccessToken, signRefreshToken, verifyToken } from "@/shared/auth/jw
 import { AppError } from "@/shared/errors/app-error";
 import { ACTIVE_TENANT_STATUSES } from "@/shared/constants/tenant-status";
 import { rbacLookup } from "@/shared/middleware/rbac-lookup";
+import { getActiveSubscription, isSubscriptionExpired } from "@/shared/utils/subscription";
 import { cloudinaryImageUrl, CLOUDINARY_TRANSFORM } from "@/shared/utils/cloudinary";
 import type { AuthContext } from "@/shared/middleware/with-api-auth";
 import type { LoginDto, RefreshDto } from "../dto/auth.dto";
@@ -22,6 +23,13 @@ export const authService = {
     }
 
     if (!user.tenant || !ACTIVE_TENANT_STATUSES.has(user.tenant.status)) {
+      throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
+    }
+
+    // Same generic message as every other branch above — a lapsed plan is
+    // not a reason to tell an unauthenticated caller anything more specific
+    // than "invalid credentials" (see the enumeration-safety comment above).
+    if (isSubscriptionExpired(await getActiveSubscription(user.tenantId))) {
       throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
     }
 
@@ -54,6 +62,11 @@ export const authService = {
     if (!tenant || !ACTIVE_TENANT_STATUSES.has(tenant.status)) {
       throw new AppError("UNAUTHENTICATED", "Session is no longer valid");
     }
+    // A plan that has since lapsed by date must lose access immediately
+    // too, same reasoning as the tenant.status check just above.
+    if (isSubscriptionExpired(await getActiveSubscription(tenantId))) {
+      throw new AppError("UNAUTHENTICATED", "Session is no longer valid");
+    }
 
     const user = await authRepository.findUserById(tenantId, userId);
     if (!user || user.status !== "ACTIVE") {
@@ -72,13 +85,18 @@ export const authService = {
     if (!user) {
       throw new AppError("UNAUTHENTICATED", "Session is no longer valid");
     }
-    const [permissions, enabledFeatures] = await Promise.all([
+    const [permissions, enabledFeatures, subscription] = await Promise.all([
       rbacLookup.listPermissionCodesForRole(auth.roleId),
       rbacLookup.listEnabledFeatureCodesForTenant(auth.tenantId),
+      getActiveSubscription(auth.tenantId),
     ]);
 
     const logoUrl = user.tenant.logoPublicId
       ? cloudinaryImageUrl(user.tenant.logoPublicId, CLOUDINARY_TRANSFORM.logo)
+      : null;
+
+    const daysUntilRenewal = subscription
+      ? Math.ceil((subscription.endDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000))
       : null;
 
     return {
@@ -100,6 +118,8 @@ export const authService = {
         invoicePrefix: user.tenant.settings?.invoicePrefix ?? null,
         homeState: user.tenant.settings?.homeState ?? null,
         taxInclusivePricing: user.tenant.settings?.taxInclusivePricing ?? false,
+        subscriptionEndDate: subscription?.endDate.toISOString() ?? null,
+        daysUntilRenewal,
       },
       warehouseId: user.warehouseId?.toString() ?? null,
       warehouseName: user.warehouse?.name ?? null,

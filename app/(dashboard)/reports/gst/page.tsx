@@ -10,13 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { apiClient } from "@/lib/api/client";
-import { fetchAllPages } from "@/lib/api/fetch-all-pages";
 import { queryKeys } from "@/lib/api/query-keys";
-import { computeGstInsights } from "@/lib/insights/compute-gst-insights";
-import type { SaleView } from "@/modules/sales/types/sale.types";
-import type { PurchaseView } from "@/modules/purchase/types/purchase.types";
-import type { TaxRateView } from "@/modules/tax-rate/types/tax-rate.types";
-import type { Paginated } from "@/shared/utils/pagination";
+import type { GstInsights } from "@/lib/insights/compute-gst-insights";
 
 const componentChartConfig = {
   amount: { label: "Tax collected", color: "var(--chart-1)" },
@@ -53,37 +48,14 @@ export default function GstReportPage() {
   const [from, setFrom] = useState(firstOfMonth(now));
   const [to, setTo] = useState(today(now));
 
-  // GST totals must be computed over the complete set, not one capped
-  // page — this fetches every page rather than treating /sales|/purchases
-  // as a picker.
-  const salesQuery = useQuery({
-    queryKey: queryKeys.list("sales", { all: true }),
-    queryFn: () => fetchAllPages((page) => apiClient.get<Paginated<SaleView>>("/sales", { page, pageSize: 100 })),
+  // The server computes this now (GET /reports/gst, gated behind the
+  // GST_REPORT feature) — it fetches the complete sales/purchases for the
+  // period itself and runs the same computeGstInsights() aggregation that
+  // used to run here client-side over three separately-fetched resources.
+  const { data: insights, isLoading } = useQuery({
+    queryKey: queryKeys.list("reports/gst", { from, to }),
+    queryFn: () => apiClient.get<GstInsights>("/reports/gst", { dateFrom: from, dateTo: to }),
   });
-  const purchasesQuery = useQuery({
-    queryKey: queryKeys.list("purchases", { all: true }),
-    queryFn: () =>
-      fetchAllPages((page) => apiClient.get<Paginated<PurchaseView>>("/purchases", { page, pageSize: 100 })),
-  });
-  const taxRatesQuery = useQuery({
-    queryKey: queryKeys.list("tax-rates"),
-    queryFn: () => apiClient.get<TaxRateView[]>("/tax-rates"),
-  });
-
-  const isLoading = salesQuery.isLoading || purchasesQuery.isLoading || taxRatesQuery.isLoading;
-
-  const periodStart = new Date(`${from}T00:00:00.000Z`);
-  const periodEnd = new Date(`${to}T23:59:59.999Z`);
-
-  const insights = !isLoading
-    ? computeGstInsights({
-        sales: salesQuery.data ?? [],
-        purchases: purchasesQuery.data ?? [],
-        taxRates: taxRatesQuery.data ?? [],
-        periodStart,
-        periodEnd,
-      })
-    : null;
 
   const componentData = insights
     ? [

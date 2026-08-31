@@ -13,6 +13,7 @@ import {
   ArrowLeftRight,
   LayoutDashboard,
 } from "lucide-react";
+import { GiShoppingBag } from "react-icons/gi";
 import { cn } from "@/lib/utils";
 import { STORE_NAV_ITEMS } from "@/lib/nav/store-sections";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -47,8 +48,8 @@ export function StoreSidebar() {
           // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary URL, not a local/static asset
           <img src={user.tenantLogoUrl} alt="" className="h-8 w-8 rounded object-contain" />
         ) : (
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary font-heading text-sm font-bold text-sidebar-primary-foreground">
-            R
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+            <GiShoppingBag className="size-5" />
           </div>
         )}
       </div>

@@ -37,6 +37,7 @@ export const superAdminPlanService = {
         billingCycle: dto.billingCycle,
         maxWarehouses: dto.maxWarehouses ?? null,
         maxUsers: dto.maxUsers ?? null,
+        maxRoles: dto.maxRoles ?? null,
       });
       await superAdminPlanRepository.addFeatures(tx, created.id, featureIds);
       return created;
@@ -66,6 +67,7 @@ export const superAdminPlanService = {
         billingCycle: dto.billingCycle,
         maxWarehouses: dto.maxWarehouses ?? null,
         maxUsers: dto.maxUsers ?? null,
+        maxRoles: dto.maxRoles ?? null,
       });
       await superAdminPlanRepository.replaceFeatures(tx, dto.planId, featureIds);
     });
@@ -88,6 +90,7 @@ function toPlanView(plan: PlanWithFeatures): PlanView {
     billingCycle: plan.billingCycle,
     maxWarehouses: plan.maxWarehouses,
     maxUsers: plan.maxUsers,
+    maxRoles: plan.maxRoles,
     features: plan.planFeatures.map((pf) => pf.feature.code),
     createdAt: plan.createdAt.toISOString(),
     updatedAt: plan.updatedAt.toISOString(),

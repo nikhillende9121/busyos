@@ -14,8 +14,19 @@ vi.mock("../rbac-lookup", () => ({
   },
 }));
 
+// Fully mocked (not vi.importOriginal) — the real module imports
+// shared/database/prisma, which requires live DB_* env vars at import
+// time. isSubscriptionExpired is reimplemented here rather than imported,
+// since it's a small, stable, pure predicate.
+vi.mock("@/shared/utils/subscription", () => ({
+  getActiveSubscription: vi.fn(),
+  isSubscriptionExpired: (subscription: { endDate: Date } | null) =>
+    subscription !== null && subscription.endDate.getTime() < Date.now(),
+}));
+
 import { verifyToken } from "@/shared/auth/jwt";
 import { rbacLookup } from "../rbac-lookup";
+import { getActiveSubscription } from "@/shared/utils/subscription";
 import { withApiAuth } from "../with-api-auth";
 
 function requestWithAuthHeader(authorization?: string): NextRequest {
@@ -36,6 +47,7 @@ describe("withApiAuth", () => {
     vi.clearAllMocks();
     vi.mocked(rbacLookup.findTenantById).mockResolvedValue({ id: 1n, status: "ACTIVE" } as never);
     vi.mocked(rbacLookup.findUserWarehouseScope).mockResolvedValue(null);
+    vi.mocked(getActiveSubscription).mockResolvedValue(null);
   });
 
   it("rejects a request with no bearer token before touching the database", async () => {
@@ -52,6 +64,24 @@ describe("withApiAuth", () => {
   it("rejects a suspended tenant before checking feature/permission", async () => {
     vi.mocked(verifyToken).mockReturnValue(VALID_CLAIMS);
     vi.mocked(rbacLookup.findTenantById).mockResolvedValue({ id: 1n, status: "SUSPENDED" } as never);
+    const wrapped = withApiAuth(async () => new Response("ok"), {
+      feature: "INVENTORY",
+      permission: "INVENTORY.ADJUST",
+    });
+
+    const { status, body } = await statusOf(
+      await wrapped(requestWithAuthHeader("Bearer token"), { params: Promise.resolve({}) }),
+    );
+
+    expect(status).toBe(403);
+    expect(body.error.code).toBe("SUBSCRIPTION_EXPIRED");
+    expect(rbacLookup.isFeatureEnabledForTenant).not.toHaveBeenCalled();
+    expect(rbacLookup.roleHasPermission).not.toHaveBeenCalled();
+  });
+
+  it("rejects a tenant whose subscription has expired by date, even with an ACTIVE status", async () => {
+    vi.mocked(verifyToken).mockReturnValue(VALID_CLAIMS);
+    vi.mocked(getActiveSubscription).mockResolvedValue({ endDate: new Date("2020-01-01") } as never);
     const wrapped = withApiAuth(async () => new Response("ok"), {
       feature: "INVENTORY",
       permission: "INVENTORY.ADJUST",

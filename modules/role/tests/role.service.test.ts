@@ -18,10 +18,16 @@ vi.mock("../repository/role.repository", () => ({
     findPermissionsByCodes: vi.fn(),
     replacePermissions: vi.fn(),
     listPermissionCatalog: vi.fn(),
+    countActiveByTenant: vi.fn(),
   },
 }));
 
+vi.mock("@/shared/utils/plan-limits", () => ({
+  getActivePlanLimits: vi.fn(),
+}));
+
 import { roleRepository } from "../repository/role.repository";
+import { getActivePlanLimits } from "@/shared/utils/plan-limits";
 import { roleService } from "../service/role.service";
 
 function permission(overrides: Partial<{ id: bigint; code: string; module: string; action: string }> = {}) {
@@ -70,6 +76,26 @@ describe("roleService.create", () => {
     vi.mocked(roleRepository.create).mockResolvedValue({ id: 1n } as never);
     vi.mocked(roleRepository.replacePermissions).mockResolvedValue(undefined);
     vi.mocked(roleRepository.findByIdForTenant).mockResolvedValue(roleRow() as never);
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: null });
+  });
+
+  it("blocks creation once the plan's role limit is reached", async () => {
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: 3 });
+    vi.mocked(roleRepository.countActiveByTenant).mockResolvedValue(3);
+
+    await expect(
+      roleService.create({ tenantId: 1n, name: "Cashier", code: "CASHIER", permissionCodes: [] }),
+    ).rejects.toMatchObject({ code: "PLAN_LIMIT_REACHED" });
+    expect(roleRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("allows creation when under the plan's role limit", async () => {
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: 3 });
+    vi.mocked(roleRepository.countActiveByTenant).mockResolvedValue(2);
+    vi.mocked(roleRepository.findPermissionsByCodes).mockResolvedValue([]);
+
+    await roleService.create({ tenantId: 1n, name: "Cashier", code: "CASHIER", permissionCodes: [] });
+    expect(roleRepository.create).toHaveBeenCalled();
   });
 
   it("validates every submitted permission code exists before creating", async () => {

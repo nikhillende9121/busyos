@@ -11,6 +11,7 @@ export const createPlanSchema = z.object({
   // Omitted means unlimited — see shared/utils/plan-limits.ts.
   maxWarehouses: z.coerce.number().int().positive().optional(),
   maxUsers: z.coerce.number().int().positive().optional(),
+  maxRoles: z.coerce.number().int().positive().optional(),
 });
 
 // Same shape as create — updating a plan is a full replace, not a patch,

@@ -13,12 +13,10 @@ plan tier and a proposed price for that tier.
   stores or warehouses as your plan's limit allows; each operates its own
   live stock count.
 - **Staff accounts & role-based access** — Cashier, Store Manager, Admin,
-  or a fully custom role; each user can be restricted to exactly one
-  store, or given access across all of them.
+  or as many custom roles as your plan's limit allows; each user can be
+  restricted to exactly one store, or given access across all of them.
 - **Tax rate configuration** — CGST/SGST/IGST/CESS components, per-product
   tax rates or a tenant-wide default.
-- **Extra charges** — packing, shipping, or any other flat/percentage fee,
-  attachable to a sale.
 - **Tenant branding** — your own logo across the web app.
 
 ### Product Catalog
@@ -47,6 +45,8 @@ plan tier and a proposed price for that tier.
   quantity-tier pricing.
 - **Discounts** — automatic, rule-based discounts.
 - **Coupons** — code-redeemed discounts with usage limits.
+- **Extra charges** — packing, shipping, or any other flat/percentage fee,
+  attachable to a sale.
 
 ### Inventory & Fulfillment
 - **Live inventory balance** — real-time stock per product per store.
@@ -77,18 +77,20 @@ plan tier and a proposed price for that tier.
 | Effective monthly | ₹1,249 / mo | ₹2,083 / mo | — |
 | Warehouses | 1 | Up to 5 | Unlimited |
 | Users | Up to 3 | Up to 15 | Unlimited |
+| Custom roles | Up to 3 | Up to 10 | Unlimited |
 | Product catalog (+ categories/brands/units) | ✅ | ✅ | ✅ |
 | Suppliers & Purchasing | ✅ | ✅ | ✅ |
 | Sales / POS (all channels) | ✅ | ✅ | ✅ |
 | Customers | ✅ | ✅ | ✅ |
 | Store checkout screen | ✅ | ✅ | ✅ |
-| Tax rates, extra charges, GST report | ✅ | ✅ | ✅ |
+| Tax rates | ✅ | ✅ | ✅ |
 | Dashboard insights | ✅ | ✅ | ✅ |
 | Purchase returns | — | ✅ | ✅ |
 | Sale returns & exchanges | — | ✅ | ✅ |
 | Customer groups | — | ✅ | ✅ |
-| Price lists, discounts, coupons | — | ✅ | ✅ |
+| Price lists, discounts, coupons, extra charges | — | ✅ | ✅ |
 | Stock transfers (multi-store) | — | ✅ | ✅ |
+| GST report | — | ✅ | ✅ |
 | Support | Email | Priority | Dedicated onboarding + account manager |
 | Custom reporting | — | — | ✅ |
 
@@ -108,13 +110,21 @@ available on request (Starter ₹1,499 / mo, Growth ₹3,999 / mo).
   second location, stock transfers and centralized pricing stop being
   optional. Returns/exchanges and customer segmentation round it out as
   the "running a real retail operation" tier.
-- **Enterprise** removes every ceiling (warehouses, users) and adds the
-  things that only matter at chain scale — dedicated support and
+- **Enterprise** removes every ceiling (warehouses, users, roles) and adds
+  the things that only matter at chain scale — dedicated support and
   reporting built around a specific business's needs.
-- Staff/access management, tax configuration, and reporting are **never
-  gated** — restricting a business's ability to manage its own staff or
-  see its own tax liability isn't a real pricing lever, it's just a
-  support problem waiting to happen.
+- Staff/access management (roles, users, warehouses, tenant settings) and
+  tax rate configuration are **never gated** — restricting a business's
+  ability to manage its own staff or see its own tax rates isn't a real
+  pricing lever, it's just a support problem waiting to happen. Custom
+  role *count* is still capped per tier the same way warehouses/users
+  are (a quota, not an on/off switch) — see `Plan.maxRoles`.
+- GST report moved behind the Growth+ line alongside the other
+  pricing/tax-adjacent features it ships with (extra charges, price
+  lists, discounts, coupons) — unlike tax *rate configuration* (which
+  stays universal), the report itself is a value-add view, not a
+  compliance obligation the platform owes every tenant regardless of
+  plan.
 
 ---
 
@@ -135,9 +145,12 @@ plan.service.ts` / `tenant.service.ts`):
 | Sale returns / exchanges | `SALE_RETURN`, `SALE_EXCHANGE` |
 | Customers / groups | `CUSTOMER`, `CUSTOMER_GROUP` |
 | Price lists / discounts / coupons | `PRICE_LIST`, `DISCOUNT`, `COUPON` |
+| Extra charges | `EXTRA_CHARGE` |
+| GST report | `GST_REPORT` |
 | Inventory & adjustments | `INVENTORY` |
 | Stock transfers | `STOCK_TRANSFER` |
-| Warehouses, staff/roles, tax rates, extra charges | ungated — no feature flag, permission-only |
+| Warehouses, staff/roles, tax rates | ungated — no feature flag, permission-only |
 
-Warehouse/user *counts* are enforced separately via `Plan.maxWarehouses`/
-`Plan.maxUsers`, not the feature-flag system.
+Warehouse/user/role *counts* are enforced separately via
+`Plan.maxWarehouses`/`Plan.maxUsers`/`Plan.maxRoles`, not the feature-flag
+system.

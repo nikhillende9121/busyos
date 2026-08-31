@@ -15,7 +15,7 @@ vi.mock("../repository/warehouse.repository", () => ({
 }));
 
 vi.mock("@/shared/utils/plan-limits", () => ({
-  getActivePlanLimits: vi.fn().mockResolvedValue({ maxWarehouses: null, maxUsers: null }),
+  getActivePlanLimits: vi.fn().mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: null }),
 }));
 
 import { warehouseRepository } from "../repository/warehouse.repository";
@@ -70,11 +70,11 @@ describe("warehouseService.list / getById — warehouse scoping", () => {
 describe("warehouseService.create", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null });
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: null });
   });
 
   it("blocks creation once the plan's warehouse limit is reached", async () => {
-    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: 2, maxUsers: null });
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: 2, maxUsers: null, maxRoles: null });
     vi.mocked(warehouseRepository.countActiveByTenant).mockResolvedValue(2);
 
     await expect(
@@ -84,7 +84,7 @@ describe("warehouseService.create", () => {
   });
 
   it("allows creation when under the plan's warehouse limit", async () => {
-    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: 2, maxUsers: null });
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: 2, maxUsers: null, maxRoles: null });
     vi.mocked(warehouseRepository.countActiveByTenant).mockResolvedValue(1);
     vi.mocked(warehouseRepository.create).mockResolvedValue(warehouseRow() as never);
 
