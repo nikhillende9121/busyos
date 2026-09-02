@@ -10,7 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/resource/confirm-dialog";
+import { LoaderButton } from "@/components/ui/loader-button";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -53,8 +57,9 @@ export default function StoreSaleDetailPage() {
   };
 
   const actionMutation = useMutation({
-    mutationFn: (action: SaleAction) => apiClient.post<SaleView>(`/sales/${id}/${action}`),
-    onSuccess: (_data, action) => {
+    mutationFn: ({ action, body }: { action: SaleAction; body?: unknown }) =>
+      apiClient.post<SaleView>(`/sales/${id}/${action}`, body),
+    onSuccess: (_data, { action }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.detail("sales", id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.list("sales") });
       queryClient.invalidateQueries({ queryKey: queryKeys.list("inventory-balance") });
@@ -64,7 +69,7 @@ export default function StoreSaleDetailPage() {
 
   const runAction = async (action: SaleAction) => {
     try {
-      await actionMutation.mutateAsync(action);
+      await actionMutation.mutateAsync({ action });
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
     }
@@ -97,6 +102,9 @@ export default function StoreSaleDetailPage() {
         <div className="flex items-center gap-2">
           <Badge variant="outline">{sale.channel}</Badge>
           <Badge>{sale.status}</Badge>
+          {sale.assignedDeliveryUserName && (
+            <span className="text-sm text-muted-foreground">Assigned to {sale.assignedDeliveryUserName}</span>
+          )}
           {canConfirm && <Button onClick={() => setConfirmAction("confirm")}>Confirm</Button>}
           {canProcess && <Button onClick={() => setConfirmAction("process")}>Process</Button>}
           {canPack && <Button onClick={() => setConfirmAction("pack")}>Pack</Button>}
@@ -219,7 +227,17 @@ export default function StoreSaleDetailPage() {
         </CardContent>
       </Card>
 
-      {confirmAction && (
+      {confirmAction === "ship" && (
+        <ShipDialog
+          open
+          onOpenChange={(open) => !open && setConfirmAction(null)}
+          onSubmit={(assignedDeliveryUserId) =>
+            actionMutation.mutateAsync({ action: "ship", body: { assignedDeliveryUserId } })
+          }
+        />
+      )}
+
+      {confirmAction && confirmAction !== "ship" && (
         <ConfirmDialog
           open={Boolean(confirmAction)}
           onOpenChange={(open) => !open && setConfirmAction(null)}
@@ -233,6 +251,79 @@ export default function StoreSaleDetailPage() {
         />
       )}
     </div>
+  );
+}
+
+// Ship is the one lifecycle action that needs input (who's taking the
+// package), unlike every other action's plain ConfirmDialog — see
+// modules/sales/service/sale.service.ts's ship().
+function ShipDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (assignedDeliveryUserId: string) => Promise<unknown>;
+}) {
+  const [assigneeId, setAssigneeId] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { data: assignees, isLoading } = useQuery({
+    queryKey: queryKeys.list("sales-delivery-assignees"),
+    queryFn: () => apiClient.get<{ id: string; name: string }[]>("/sales/delivery-assignees"),
+    enabled: open,
+  });
+
+  const handleSubmit = async () => {
+    if (!assigneeId) return;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(assigneeId);
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Ship this sale?</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label>Assign to</Label>
+          <Select value={assigneeId} onValueChange={(value) => setAssigneeId(value ?? "")}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={isLoading ? "Loading…" : "Select a delivery person"} />
+            </SelectTrigger>
+            <SelectContent>
+              {(assignees ?? []).map((assignee) => (
+                <SelectItem key={assignee.id} value={assignee.id}>
+                  {assignee.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {assignees?.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No users hold the delivery permission yet — grant SALE.DELIVER to a role first.
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <LoaderButton onClick={handleSubmit} disabled={!assigneeId} loading={isSubmitting}>
+            Ship
+          </LoaderButton>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

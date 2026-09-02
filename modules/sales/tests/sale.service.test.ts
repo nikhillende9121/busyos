@@ -58,6 +58,14 @@ vi.mock("@/modules/pricing/service/tax.service", () => ({
 vi.mock("@/shared/middleware/rbac-lookup", () => ({
   rbacLookup: {
     isFeatureEnabledForTenant: vi.fn(),
+    roleHasPermission: vi.fn(),
+  },
+}));
+
+vi.mock("@/modules/user/repository/user.repository", () => ({
+  userRepository: {
+    findByIdForTenant: vi.fn(),
+    findManyByTenantWithPermission: vi.fn(),
   },
 }));
 
@@ -73,6 +81,7 @@ import { promotionService } from "@/modules/pricing/service/promotion.service";
 import { priceListService } from "@/modules/pricing/service/price-list.service";
 import { taxService } from "@/modules/pricing/service/tax.service";
 import { rbacLookup } from "@/shared/middleware/rbac-lookup";
+import { userRepository } from "@/modules/user/repository/user.repository";
 import { extraChargeRepository } from "@/modules/extra-charge/repository/extra-charge.repository";
 import { saleService, resolveSaleCharges } from "../service/sale.service";
 
@@ -119,6 +128,8 @@ function saleRow(overrides: Partial<Record<string, unknown>> = {}) {
     createdBy: null,
     updatedBy: null,
     deletedAt: null,
+    assignedDeliveryUserId: null,
+    assignedDeliveryUser: null,
     items: [
       {
         id: 900n,
@@ -660,7 +671,7 @@ describe("saleService — online fulfillment pipeline", () => {
     const processed = await saleService.process(1n, 800n);
 
     expect(processed.status).toBe("PROCESSING");
-    expect(saleRepository.updateStatus).toHaveBeenCalledWith(expect.anything(), 800n, "PROCESSING");
+    expect(saleRepository.updateStatus).toHaveBeenCalledWith(expect.anything(), 800n, "PROCESSING", undefined);
     expect(inventoryService.recordMovement).not.toHaveBeenCalled();
   });
 
@@ -701,6 +712,108 @@ describe("saleService — online fulfillment pipeline", () => {
 
     const delivered = await saleService.deliver(1n, 800n);
     expect(delivered.status).toBe("DELIVERED");
+  });
+
+  it("rejects shipping to a user outside the tenant", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "PACKED" }) as never,
+    );
+    vi.mocked(userRepository.findByIdForTenant).mockResolvedValue(null);
+
+    await expect(saleService.ship(1n, 800n, null, 55n)).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
+    expect(saleRepository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("rejects shipping to a user who doesn't hold SALE.DELIVER", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "PACKED" }) as never,
+    );
+    vi.mocked(userRepository.findByIdForTenant).mockResolvedValue({ id: 55n, roleId: 5n, name: "Courier" } as never);
+    vi.mocked(rbacLookup.roleHasPermission).mockResolvedValue(false);
+
+    await expect(saleService.ship(1n, 800n, null, 55n)).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
+    expect(saleRepository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("assigns the delivery user on ship when they hold SALE.DELIVER", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "PACKED" }) as never,
+    );
+    vi.mocked(userRepository.findByIdForTenant).mockResolvedValue({ id: 55n, roleId: 5n, name: "Courier" } as never);
+    vi.mocked(rbacLookup.roleHasPermission).mockResolvedValue(true);
+    vi.mocked(saleRepository.updateStatus).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "SHIPPED", assignedDeliveryUserId: 55n }) as never,
+    );
+
+    const shipped = await saleService.ship(1n, 800n, null, 55n);
+
+    expect(shipped.assignedDeliveryUserId).toBe("55");
+    expect(shipped.assignedDeliveryUserName).toBe("Courier");
+    expect(saleRepository.updateStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      800n,
+      "SHIPPED",
+      { assignedDeliveryUserId: 55n },
+    );
+  });
+
+  it("lets the assigned delivery person confirm delivery without needing SALE.UPDATE", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "SHIPPED", assignedDeliveryUserId: 55n }) as never,
+    );
+    vi.mocked(saleRepository.updateStatus).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "DELIVERED", assignedDeliveryUserId: 55n }) as never,
+    );
+
+    const delivered = await saleService.deliver(1n, 800n, null, 55n, 5n);
+
+    expect(delivered.status).toBe("DELIVERED");
+    expect(rbacLookup.roleHasPermission).not.toHaveBeenCalled();
+  });
+
+  it("rejects a different user confirming delivery without a SALE.UPDATE override", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "SHIPPED", assignedDeliveryUserId: 55n }) as never,
+    );
+    vi.mocked(rbacLookup.roleHasPermission).mockResolvedValue(false);
+
+    await expect(saleService.deliver(1n, 800n, null, 99n, 6n)).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
+    expect(saleRepository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("lets a SALE.UPDATE holder confirm delivery on behalf of the assigned courier", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "SHIPPED", assignedDeliveryUserId: 55n }) as never,
+    );
+    vi.mocked(rbacLookup.roleHasPermission).mockResolvedValue(true);
+    vi.mocked(saleRepository.updateStatus).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "DELIVERED", assignedDeliveryUserId: 55n }) as never,
+    );
+
+    const delivered = await saleService.deliver(1n, 800n, null, 99n, 6n);
+
+    expect(delivered.status).toBe("DELIVERED");
+    expect(rbacLookup.roleHasPermission).toHaveBeenCalledWith(6n, "SALE.UPDATE");
+  });
+
+  it("allows any SALE.DELIVER holder when the sale has no assignee (back-compat)", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "SHIPPED", assignedDeliveryUserId: null }) as never,
+    );
+    vi.mocked(saleRepository.updateStatus).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "DELIVERED" }) as never,
+    );
+
+    const delivered = await saleService.deliver(1n, 800n, null, 99n, 6n);
+
+    expect(delivered.status).toBe("DELIVERED");
+    expect(rbacLookup.roleHasPermission).not.toHaveBeenCalled();
   });
 
   it("rejects the fulfillment pipeline entirely for a POS sale", async () => {
@@ -947,5 +1060,22 @@ describe("resolveSaleCharges", () => {
     const result = await resolveSaleCharges(1n, DEFAULT_TAX_CONTEXT as never, undefined, "200");
 
     expect(result).toEqual([{ extraChargeId: 1n, taxRateId: 5n, name: "Shipping", amount: "50", taxAmount: "9" }]);
+  });
+});
+
+describe("saleService.listDeliveryAssignees", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("lists only users holding SALE.DELIVER", async () => {
+    vi.mocked(userRepository.findManyByTenantWithPermission).mockResolvedValue([
+      { id: 55n, name: "Courier" },
+    ] as never);
+
+    const result = await saleService.listDeliveryAssignees(1n);
+
+    expect(result).toEqual([{ id: "55", name: "Courier" }]);
+    expect(userRepository.findManyByTenantWithPermission).toHaveBeenCalledWith(1n, "SALE.DELIVER");
   });
 });

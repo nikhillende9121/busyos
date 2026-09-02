@@ -60,4 +60,8 @@ export type SaleView = {
   // Present only for sales created via POST /api/v1/integrations/orders —
   // see Docs/webhooks.md §4.1.
   externalOrderReference?: string | null;
+  // Set once the sale has shipped — the delivery person it's assigned to.
+  // Only they (or a SALE.UPDATE holder) can confirm deliver().
+  assignedDeliveryUserId?: string | null;
+  assignedDeliveryUserName?: string | null;
 };

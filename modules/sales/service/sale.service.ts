@@ -10,6 +10,7 @@ import type { TaxContext } from "@/modules/pricing/types/tax.types";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import { rbacLookup } from "@/shared/middleware/rbac-lookup";
+import { userRepository } from "@/modules/user/repository/user.repository";
 import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import type { CreateSaleDto, SaleListDto, SaleExportDto } from "../dto/sale.dto";
 import type { SaleView } from "../types/sale.types";
@@ -385,12 +386,60 @@ export const saleService = {
     return advanceFulfillment(tenantId, saleId, "PROCESSING", "PACKED", scopedWarehouseId);
   },
 
-  async ship(tenantId: bigint, saleId: bigint, scopedWarehouseId: bigint | null = null): Promise<SaleView> {
-    return advanceFulfillment(tenantId, saleId, "PACKED", "SHIPPED", scopedWarehouseId);
+  // The assignee must be a real user in this tenant who actually holds
+  // SALE.DELIVER — fails loudly rather than silently accepting an
+  // assignment nobody can ever act on, same style as role.service.ts's
+  // resolvePermissionIds.
+  async ship(
+    tenantId: bigint,
+    saleId: bigint,
+    scopedWarehouseId: bigint | null = null,
+    assignedDeliveryUserId?: bigint,
+  ): Promise<SaleView> {
+    let assignee: { id: bigint; name: string } | null = null;
+    if (assignedDeliveryUserId !== undefined) {
+      const user = await userRepository.findByIdForTenant(tenantId, assignedDeliveryUserId);
+      if (!user) {
+        throw new AppError("VALIDATION_ERROR", "Assigned delivery user not found");
+      }
+      const canDeliver = await rbacLookup.roleHasPermission(user.roleId, "SALE.DELIVER");
+      if (!canDeliver) {
+        throw new AppError("VALIDATION_ERROR", "Assigned user does not hold the SALE.DELIVER permission");
+      }
+      assignee = { id: user.id, name: user.name };
+    }
+    return advanceFulfillment(tenantId, saleId, "PACKED", "SHIPPED", scopedWarehouseId, {
+      extraData: { assignedDeliveryUserId },
+      assignedDeliveryUser: assignee,
+    });
   },
 
-  async deliver(tenantId: bigint, saleId: bigint, scopedWarehouseId: bigint | null = null): Promise<SaleView> {
-    return advanceFulfillment(tenantId, saleId, "SHIPPED", "DELIVERED", scopedWarehouseId);
+  // Only the delivery person this sale was assigned to at ship() time (or
+  // a SALE.UPDATE holder, as a manager override) may confirm it — see
+  // Docs/business-rules/sales.md. A sale with no assignee (shipped before
+  // this feature existed, or via a stale client) falls back to today's
+  // rule: any SALE.DELIVER holder, which the route already enforced.
+  async deliver(
+    tenantId: bigint,
+    saleId: bigint,
+    scopedWarehouseId: bigint | null = null,
+    userId?: bigint,
+    roleId?: bigint,
+  ): Promise<SaleView> {
+    return advanceFulfillment(tenantId, saleId, "SHIPPED", "DELIVERED", scopedWarehouseId, {
+      assertAuthorized: async (sale) => {
+        if (sale.assignedDeliveryUserId === null) {
+          return;
+        }
+        if (sale.assignedDeliveryUserId === userId) {
+          return;
+        }
+        const canOverride = roleId ? await rbacLookup.roleHasPermission(roleId, "SALE.UPDATE") : false;
+        if (!canOverride) {
+          throw new AppError("PERMISSION_DENIED", "This sale is assigned to a different delivery person");
+        }
+      },
+    });
   },
 
   // Cancelling a sale that already decremented stock (CONFIRMED, PROCESSING,
@@ -438,7 +487,17 @@ export const saleService = {
 
     return toSaleView(updated, await resolveTaxInclusive(tenantId));
   },
+
+  // Populates the assignee picker on ship() — only users who could
+  // actually be assigned (i.e. hold SALE.DELIVER), not every user in the
+  // tenant.
+  async listDeliveryAssignees(tenantId: bigint): Promise<{ id: string; name: string }[]> {
+    const users = await userRepository.findManyByTenantWithPermission(tenantId, "SALE.DELIVER");
+    return users.map((user) => ({ id: user.id.toString(), name: user.name }));
+  },
 };
+
+type SaleWithRelations = NonNullable<Awaited<ReturnType<typeof saleRepository.findByIdForTenant>>>;
 
 async function advanceFulfillment(
   tenantId: bigint,
@@ -446,12 +505,29 @@ async function advanceFulfillment(
   requiredStatus: SaleStatus,
   nextStatus: SaleStatus,
   scopedWarehouseId: bigint | null = null,
+  options: {
+    // Merged into the single status-update write — e.g. ship() also
+    // persists assignedDeliveryUserId here, not as a second query.
+    extraData?: Prisma.SaleUncheckedUpdateInput;
+    // Overrides the assignee shown in the immediate response — needed
+    // only when this call just changed it (ship()); every other
+    // transition keeps showing the pre-fetched sale.assignedDeliveryUser
+    // unchanged, so this stays undefined for them.
+    assignedDeliveryUser?: { id: bigint; name: string } | null;
+    // Runs right after the sale is loaded, before the transition check —
+    // e.g. deliver() uses this to reject a caller who isn't the assigned
+    // delivery person (or an override).
+    assertAuthorized?: (sale: SaleWithRelations) => void | Promise<void>;
+  } = {},
 ): Promise<SaleView> {
   const sale = await saleRepository.findByIdForTenant(tenantId, saleId);
   if (!sale) {
     throw new AppError("RESOURCE_NOT_FOUND", "Sale not found");
   }
   assertWarehouseAccess({ warehouseId: scopedWarehouseId }, sale.warehouseId);
+  if (options.assertAuthorized) {
+    await options.assertAuthorized(sale);
+  }
   if (sale.channel === "POS") {
     throw new AppError(
       "VALIDATION_ERROR",
@@ -464,9 +540,16 @@ async function advanceFulfillment(
       `Cannot move a sale in status ${sale.status} to ${nextStatus}`,
     );
   }
-  const updated = await saleRepository.updateStatus(prisma, saleId, nextStatus);
+  const updated = await saleRepository.updateStatus(prisma, saleId, nextStatus, options.extraData);
   return toSaleView(
-    { ...updated, items: sale.items, discounts: sale.discounts, charges: sale.charges },
+    {
+      ...updated,
+      items: sale.items,
+      discounts: sale.discounts,
+      charges: sale.charges,
+      assignedDeliveryUser:
+        options.assignedDeliveryUser !== undefined ? options.assignedDeliveryUser : sale.assignedDeliveryUser,
+    },
     await resolveTaxInclusive(tenantId),
   );
 }
@@ -604,6 +687,7 @@ export function toSaleView(
     items?: (SaleItem & { product?: Product | null; taxes?: SaleItemTax[] })[];
     discounts?: SaleDiscount[];
     charges?: SaleCharge[];
+    assignedDeliveryUser?: { id: bigint; name: string } | null;
   },
   // No default — every caller must resolve the tenant's actual current
   // setting (resolveTaxInclusive) or reuse an already-resolved TaxContext
@@ -696,5 +780,7 @@ export function toSaleView(
     createdAt: sale.createdAt.toISOString(),
     updatedAt: sale.updatedAt.toISOString(),
     externalOrderReference: sale.externalOrderReference ?? null,
+    assignedDeliveryUserId: sale.assignedDeliveryUserId?.toString() ?? null,
+    assignedDeliveryUserName: sale.assignedDeliveryUser?.name ?? null,
   };
 }

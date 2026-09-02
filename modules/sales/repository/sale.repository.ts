@@ -8,6 +8,7 @@ const includeFullSale = {
   items: { include: { taxes: true, product: true } },
   discounts: true,
   charges: true,
+  assignedDeliveryUser: { select: { id: true, name: true } },
 } as const;
 
 type SaleFilter = {
@@ -100,8 +101,8 @@ export const saleRepository = {
     return tx.saleDiscount.findMany({ where: { saleId } });
   },
 
-  updateStatus(tx: Db, id: bigint, status: SaleStatus) {
-    return tx.sale.update({ where: { id }, data: { status } });
+  updateStatus(tx: Db, id: bigint, status: SaleStatus, extra: Prisma.SaleUncheckedUpdateInput = {}) {
+    return tx.sale.update({ where: { id }, data: { status, ...extra } });
   },
 
   findCustomerForTenant(tenantId: bigint, customerId: bigint) {

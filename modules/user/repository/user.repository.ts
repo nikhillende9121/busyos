@@ -20,6 +20,22 @@ export const userRepository = {
     });
   },
 
+  // Powers the "who can this be assigned to" picker (e.g. delivery-person
+  // assignment on a shipped sale) — a minimal {id, name} list, not the
+  // full user record, since a caller with e.g. SALE.SHIP but not
+  // USER.VIEW still needs to see it.
+  findManyByTenantWithPermission(tenantId: bigint, permissionCode: string) {
+    return prisma.user.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        role: { rolePermissions: { some: { permission: { code: permissionCode } } } },
+      },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
+  },
+
   findRoleForTenant(tenantId: bigint, roleId: bigint) {
     return prisma.role.findFirst({ where: { id: roleId, tenantId, deletedAt: null } });
   },

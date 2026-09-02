@@ -28,6 +28,14 @@ export const createSaleSchema = z.object({
 });
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
 
+// The delivery person being handed the package — see
+// modules/sales/service/sale.service.ts's ship() for the SALE.DELIVER
+// eligibility check.
+export const shipSaleSchema = z.object({
+  assignedDeliveryUserId: idString,
+});
+export type ShipSaleInput = z.infer<typeof shipSaleSchema>;
+
 const saleListFilterFields = {
   status: z
     .enum([

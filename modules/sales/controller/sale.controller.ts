@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { createSaleSchema, listSalesQuerySchema, exportSalesQuerySchema } from "../schema/sale.schema";
+import { createSaleSchema, listSalesQuerySchema, exportSalesQuerySchema, shipSaleSchema } from "../schema/sale.schema";
 import { saleService } from "../service/sale.service";
 import { successResponse, csvResponse } from "@/shared/utils/api-response";
 import { handleRouteError } from "@/shared/errors/handle-route-error";
@@ -145,10 +145,17 @@ export const saleController = {
     }
   },
 
-  async ship(_request: NextRequest, auth: AuthContext, params: SaleParams) {
+  async ship(request: NextRequest, auth: AuthContext, params: SaleParams) {
     try {
       const id = idString.parse(params.id);
-      const sale = await saleService.ship(auth.tenantId, BigInt(id), auth.warehouseId);
+      const body = await request.json();
+      const input = shipSaleSchema.parse(body);
+      const sale = await saleService.ship(
+        auth.tenantId,
+        BigInt(id),
+        auth.warehouseId,
+        BigInt(input.assignedDeliveryUserId),
+      );
       return successResponse(sale, "Sale shipped");
     } catch (error) {
       return handleRouteError(error);
@@ -158,8 +165,17 @@ export const saleController = {
   async deliver(_request: NextRequest, auth: AuthContext, params: SaleParams) {
     try {
       const id = idString.parse(params.id);
-      const sale = await saleService.deliver(auth.tenantId, BigInt(id), auth.warehouseId);
+      const sale = await saleService.deliver(auth.tenantId, BigInt(id), auth.warehouseId, auth.userId, auth.roleId);
       return successResponse(sale, "Sale delivered");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
+  async listDeliveryAssignees(_request: NextRequest, auth: AuthContext) {
+    try {
+      const assignees = await saleService.listDeliveryAssignees(auth.tenantId);
+      return successResponse(assignees, "Eligible delivery assignees retrieved");
     } catch (error) {
       return handleRouteError(error);
     }
