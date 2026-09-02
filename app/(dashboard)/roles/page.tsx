@@ -89,15 +89,21 @@ export default function RolesPage() {
         emptyMessage="No roles yet."
         actions={(row) => (
           <div className="flex justify-end gap-2">
-            {can("ROLE.UPDATE") && (
-              <Button variant="ghost" size="icon-sm" onClick={() => setEditing(row)}>
-                <Pencil className="size-4" />
-              </Button>
-            )}
-            {can("ROLE.DELETE") && (
-              <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(row)}>
-                <Trash2 className="size-4" />
-              </Button>
+            {row.code === "ADMIN" ? (
+              <span className="text-xs text-muted-foreground">System role</span>
+            ) : (
+              <>
+                {can("ROLE.UPDATE") && (
+                  <Button variant="ghost" size="icon-sm" onClick={() => setEditing(row)}>
+                    <Pencil className="size-4" />
+                  </Button>
+                )}
+                {can("ROLE.DELETE") && (
+                  <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(row)}>
+                    <Trash2 className="size-4" />
+                  </Button>
+                )}
+              </>
             )}
           </div>
         )}

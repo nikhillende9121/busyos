@@ -73,6 +73,9 @@ export const roleService = {
     if (!existing) {
       throw new AppError("RESOURCE_NOT_FOUND", "Role not found");
     }
+    if (existing.code === "ADMIN") {
+      throw new AppError("CONFLICT", "The Admin role cannot be edited");
+    }
 
     const permissionIds =
       dto.permissionCodes !== undefined ? await resolvePermissionIds(dto.permissionCodes) : null;
@@ -97,6 +100,9 @@ export const roleService = {
     const existing = await roleRepository.findByIdForTenant(tenantId, roleId);
     if (!existing) {
       throw new AppError("RESOURCE_NOT_FOUND", "Role not found");
+    }
+    if (existing.code === "ADMIN") {
+      throw new AppError("CONFLICT", "The Admin role cannot be deleted");
     }
     const hasActiveUsers = await roleRepository.hasActiveUsers(roleId);
     if (hasActiveUsers) {

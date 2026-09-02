@@ -156,6 +156,15 @@ describe("roleService.update", () => {
       code: "RESOURCE_NOT_FOUND",
     });
   });
+
+  it("blocks editing the Admin system role", async () => {
+    vi.mocked(roleRepository.findByIdForTenant).mockResolvedValue(roleRow({ code: "ADMIN" }) as never);
+
+    await expect(roleService.update({ tenantId: 1n, roleId: 1n, name: "X" })).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    expect(roleRepository.update).not.toHaveBeenCalled();
+  });
 });
 
 describe("roleService.remove", () => {
@@ -177,6 +186,14 @@ describe("roleService.remove", () => {
     await roleService.remove(1n, 1n);
 
     expect(roleRepository.softDelete).toHaveBeenCalledWith(1n);
+  });
+
+  it("blocks deleting the Admin system role", async () => {
+    vi.mocked(roleRepository.findByIdForTenant).mockResolvedValue(roleRow({ code: "ADMIN" }) as never);
+    vi.mocked(roleRepository.hasActiveUsers).mockResolvedValue(false);
+
+    await expect(roleService.remove(1n, 1n)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(roleRepository.softDelete).not.toHaveBeenCalled();
   });
 });
 
