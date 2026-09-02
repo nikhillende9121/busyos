@@ -2,7 +2,8 @@
 
 A sale is now assigned to a specific delivery person when it ships, and
 only that person (or a manager) can confirm it delivered. Three API
-changes, one new endpoint.
+changes, one new endpoint, and one automatic list-scoping change (no
+client change needed for that last one, but worth knowing about).
 
 ## 1. Ship Sale now requires an assignee
 
@@ -48,6 +49,22 @@ action's response):
 "assignedDeliveryUserName": "Courier One"
 ```
 Both `null` until the sale ships.
+
+## 5. Sales list is now auto-scoped for delivery-only accounts
+
+`GET /api/v1/sales` and `GET /api/v1/sales/export` (and `GET
+/api/v1/sales/{id}`) now automatically narrow to **only the caller's own
+assigned deliveries** when the logged-in user's role holds `SALE.DELIVER`
+but not the broader `SALE.UPDATE` permission — i.e. a plain "Delivery
+Person" role, not a manager. Nothing to send from the app for this — it's
+purely server-side — but it means:
+- A courier's sales list/count will now differ from an admin's on the
+  same tenant, by design.
+- Requesting a sale by id that isn't assigned to that courier now returns
+  a normal `404 RESOURCE_NOT_FOUND`, not `403` — the app should treat it
+  like any other "sale not found."
+- A manager/admin role (or anyone without `SALE.DELIVER`) is unaffected
+  and keeps seeing the full tenant list.
 
 ## UI changes needed
 

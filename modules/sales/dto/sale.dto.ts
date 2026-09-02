@@ -42,6 +42,12 @@ export type SaleListDto = {
   page: number;
   pageSize: number;
   scopedWarehouseId?: bigint | null;
+  // The caller's own identity — used only to narrow the list to their own
+  // assigned deliveries when their role holds SALE.DELIVER but not the
+  // broader SALE.UPDATE override (see saleService's resolveDeliveryScope).
+  // Not business data, same reasoning as scopedWarehouseId.
+  requestingUserId?: bigint;
+  requestingRoleId?: bigint;
 };
 
 export type SaleExportDto = {
@@ -51,4 +57,6 @@ export type SaleExportDto = {
   dateFrom?: Date;
   dateTo?: Date;
   scopedWarehouseId?: bigint | null;
+  requestingUserId?: bigint;
+  requestingRoleId?: bigint;
 };

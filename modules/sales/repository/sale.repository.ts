@@ -17,6 +17,9 @@ type SaleFilter = {
   warehouseId?: bigint | null;
   dateFrom?: Date;
   dateTo?: Date;
+  // Narrows to sales assigned to this one user — set only for a caller
+  // scoped to their own deliveries, see saleService.resolveDeliveryScope.
+  assignedDeliveryUserId?: bigint | null;
 };
 
 function whereClause(tenantId: bigint, filter: SaleFilter): Prisma.SaleWhereInput {
@@ -26,6 +29,7 @@ function whereClause(tenantId: bigint, filter: SaleFilter): Prisma.SaleWhereInpu
     ...(filter.status ? { status: filter.status } : {}),
     ...(filter.channel ? { channel: filter.channel } : {}),
     ...(filter.warehouseId ? { warehouseId: filter.warehouseId } : {}),
+    ...(filter.assignedDeliveryUserId ? { assignedDeliveryUserId: filter.assignedDeliveryUserId } : {}),
     ...(filter.dateFrom || filter.dateTo
       ? {
           saleDate: {

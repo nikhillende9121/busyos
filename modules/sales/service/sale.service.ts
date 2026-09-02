@@ -66,14 +66,35 @@ const CANCELLABLE_STATUSES = new Set<SaleStatus>([
 ]);
 const STOCK_DECREMENTED_STATUSES = new Set<SaleStatus>(["CONFIRMED", "PROCESSING", "PACKED", "COMPLETED"]);
 
+// A role holding SALE.DELIVER but not the broader SALE.UPDATE override is
+// a delivery-only role — see deliver()'s own authorization check, which
+// grants exactly these two the ability to confirm a delivery. Reusing the
+// same rule here so "who can act on a sale" and "who can see it in their
+// list" stay in lockstep: a courier's GET /sales narrows to only sales
+// assigned to them; anyone with SALE.UPDATE (or without SALE.DELIVER at
+// all — e.g. a plain SALE.VIEW role) sees the tenant's full list
+// unfiltered, same as before this feature existed.
+async function resolveDeliveryScope(userId?: bigint, roleId?: bigint): Promise<bigint | null> {
+  if (userId === undefined || roleId === undefined) {
+    return null;
+  }
+  const [canDeliver, canOverride] = await Promise.all([
+    rbacLookup.roleHasPermission(roleId, "SALE.DELIVER"),
+    rbacLookup.roleHasPermission(roleId, "SALE.UPDATE"),
+  ]);
+  return canDeliver && !canOverride ? userId : null;
+}
+
 export const saleService = {
   async list(filter: SaleListDto): Promise<Paginated<SaleView>> {
+    const assignedDeliveryUserId = await resolveDeliveryScope(filter.requestingUserId, filter.requestingRoleId);
     const repoFilter = {
       status: filter.status as never,
       channel: filter.channel as never,
       warehouseId: filter.scopedWarehouseId ?? undefined,
       dateFrom: filter.dateFrom,
       dateTo: filter.dateTo,
+      assignedDeliveryUserId,
     };
     const skip = (filter.page - 1) * filter.pageSize;
     const [sales, total, taxInclusive] = await Promise.all([
@@ -92,12 +113,14 @@ export const saleService = {
   // Same filter as list(), but every matching row — no page/pageSize — for
   // GET /sales/export (see modules/sales/controller/sale.controller.ts).
   async exportList(filter: SaleExportDto): Promise<SaleView[]> {
+    const assignedDeliveryUserId = await resolveDeliveryScope(filter.requestingUserId, filter.requestingRoleId);
     const repoFilter = {
       status: filter.status as never,
       channel: filter.channel as never,
       warehouseId: filter.scopedWarehouseId ?? undefined,
       dateFrom: filter.dateFrom,
       dateTo: filter.dateTo,
+      assignedDeliveryUserId,
     };
     const [sales, taxInclusive] = await Promise.all([
       saleRepository.findManyByTenant(filter.tenantId, repoFilter),
@@ -106,7 +129,13 @@ export const saleService = {
     return sales.map((sale) => toSaleView(sale, taxInclusive));
   },
 
-  async getById(tenantId: bigint, saleId: bigint, scopedWarehouseId: bigint | null = null): Promise<SaleView> {
+  async getById(
+    tenantId: bigint,
+    saleId: bigint,
+    scopedWarehouseId: bigint | null = null,
+    requestingUserId?: bigint,
+    requestingRoleId?: bigint,
+  ): Promise<SaleView> {
     const [sale, taxInclusive] = await Promise.all([
       saleRepository.findByIdForTenant(tenantId, saleId),
       resolveTaxInclusive(tenantId),
@@ -115,6 +144,10 @@ export const saleService = {
       throw new AppError("RESOURCE_NOT_FOUND", "Sale not found");
     }
     assertWarehouseAccess({ warehouseId: scopedWarehouseId }, sale.warehouseId);
+    const assignedDeliveryUserId = await resolveDeliveryScope(requestingUserId, requestingRoleId);
+    if (assignedDeliveryUserId !== null && sale.assignedDeliveryUserId !== assignedDeliveryUserId) {
+      throw new AppError("RESOURCE_NOT_FOUND", "Sale not found");
+    }
     return toSaleView(sale, taxInclusive);
   },
 

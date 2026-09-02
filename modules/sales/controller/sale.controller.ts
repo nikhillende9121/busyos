@@ -24,6 +24,8 @@ export const saleController = {
         page: query.page,
         pageSize: query.pageSize,
         scopedWarehouseId: auth.warehouseId,
+        requestingUserId: auth.userId,
+        requestingRoleId: auth.roleId,
       });
       return successResponse(sales, "Sales retrieved");
     } catch (error) {
@@ -43,6 +45,8 @@ export const saleController = {
         dateFrom: query.dateFrom,
         dateTo: query.dateTo,
         scopedWarehouseId: auth.warehouseId,
+        requestingUserId: auth.userId,
+        requestingRoleId: auth.roleId,
       });
       const csv = toCsv(sales, [
         { key: "saleNumber", header: "Sale #" },
@@ -63,7 +67,7 @@ export const saleController = {
   async getById(_request: NextRequest, auth: AuthContext, params: SaleParams) {
     try {
       const id = idString.parse(params.id);
-      const sale = await saleService.getById(auth.tenantId, BigInt(id), auth.warehouseId);
+      const sale = await saleService.getById(auth.tenantId, BigInt(id), auth.warehouseId, auth.userId, auth.roleId);
       return successResponse(sale, "Sale retrieved");
     } catch (error) {
       return handleRouteError(error);

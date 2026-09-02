@@ -931,6 +931,38 @@ describe("saleService.list — pagination & date filter", () => {
     expect(saleRepository.findManyByTenant).toHaveBeenCalledWith(1n, expect.objectContaining({ dateFrom, dateTo }));
     expect(saleRepository.countByTenant).toHaveBeenCalledWith(1n, expect.objectContaining({ dateFrom, dateTo }));
   });
+
+  it("does not scope the list when the caller has no SALE.DELIVER (or no identity was passed)", async () => {
+    await saleService.list({ tenantId: 1n, page: 1, pageSize: 20 });
+
+    expect(saleRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ assignedDeliveryUserId: null }),
+    );
+  });
+
+  it("does not scope the list for a role holding SALE.UPDATE, even if it also holds SALE.DELIVER", async () => {
+    vi.mocked(rbacLookup.roleHasPermission).mockResolvedValue(true);
+
+    await saleService.list({ tenantId: 1n, page: 1, pageSize: 20, requestingUserId: 55n, requestingRoleId: 5n });
+
+    expect(saleRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ assignedDeliveryUserId: null }),
+    );
+  });
+
+  it("scopes the list to the caller's own assigned deliveries for a delivery-only role", async () => {
+    vi.mocked(rbacLookup.roleHasPermission).mockImplementation(async (_roleId, code) => code === "SALE.DELIVER");
+
+    await saleService.list({ tenantId: 1n, page: 1, pageSize: 20, requestingUserId: 55n, requestingRoleId: 5n });
+
+    expect(saleRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ assignedDeliveryUserId: 55n }),
+    );
+    expect(saleRepository.countByTenant).toHaveBeenCalledWith(1n, expect.objectContaining({ assignedDeliveryUserId: 55n }));
+  });
 });
 
 describe("saleService.exportList", () => {
@@ -951,6 +983,56 @@ describe("saleService.exportList", () => {
     expect(callArgs.skip).toBeUndefined();
     expect(callArgs.take).toBeUndefined();
     expect(saleRepository.countByTenant).not.toHaveBeenCalled();
+  });
+
+  it("scopes the export to the caller's own assigned deliveries for a delivery-only role", async () => {
+    vi.mocked(saleRepository.findManyByTenant).mockResolvedValue([] as never);
+    vi.mocked(rbacLookup.roleHasPermission).mockImplementation(async (_roleId, code) => code === "SALE.DELIVER");
+
+    await saleService.exportList({ tenantId: 1n, requestingUserId: 55n, requestingRoleId: 5n });
+
+    expect(saleRepository.findManyByTenant).toHaveBeenCalledWith(
+      1n,
+      expect.objectContaining({ assignedDeliveryUserId: 55n }),
+    );
+  });
+});
+
+describe("saleService.getById — delivery scoping", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(taxService.resolveTaxInclusivePricing).mockResolvedValue(false);
+  });
+
+  it("hides a sale assigned to someone else from a delivery-only caller", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ status: "SHIPPED", assignedDeliveryUserId: 99n }) as never,
+    );
+    vi.mocked(rbacLookup.roleHasPermission).mockImplementation(async (_roleId, code) => code === "SALE.DELIVER");
+
+    await expect(saleService.getById(1n, 800n, null, 55n, 5n)).rejects.toMatchObject({
+      code: "RESOURCE_NOT_FOUND",
+    });
+  });
+
+  it("lets a delivery-only caller view their own assigned sale", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ status: "SHIPPED", assignedDeliveryUserId: 55n }) as never,
+    );
+    vi.mocked(rbacLookup.roleHasPermission).mockImplementation(async (_roleId, code) => code === "SALE.DELIVER");
+
+    const sale = await saleService.getById(1n, 800n, null, 55n, 5n);
+    expect(sale.id).toBe("800");
+  });
+
+  it("lets a SALE.UPDATE holder view any sale regardless of assignment", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ status: "SHIPPED", assignedDeliveryUserId: 99n }) as never,
+    );
+    vi.mocked(rbacLookup.roleHasPermission).mockResolvedValue(true);
+
+    const sale = await saleService.getById(1n, 800n, null, 1n, 1n);
+    expect(sale.id).toBe("800");
   });
 });
 
