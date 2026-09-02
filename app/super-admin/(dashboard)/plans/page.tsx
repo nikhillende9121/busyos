@@ -27,6 +27,7 @@ type PlanFormValues = {
   maxWarehouses: string;
   maxUsers: string;
   maxRoles: string;
+  maxWebhooks: string;
 };
 
 export default function SuperAdminPlansPage() {
@@ -46,8 +47,9 @@ export default function SuperAdminPlansPage() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["super-admin", "plans"] });
 
   // Blank limit fields must be OMITTED, not sent as "" — the API treats an
-  // omitted maxWarehouses/maxUsers/maxRoles as unlimited, but Number("") is
-  // 0, which would be rejected by the schema's .positive() check instead.
+  // omitted maxWarehouses/maxUsers/maxRoles/maxWebhooks as unlimited, but
+  // Number("") is 0, which would be rejected by the schema's .positive()
+  // check instead.
   const toPayload = (values: PlanFormValues) => ({
     name: values.name,
     price: values.price,
@@ -56,6 +58,7 @@ export default function SuperAdminPlansPage() {
     maxWarehouses: values.maxWarehouses ? Number(values.maxWarehouses) : undefined,
     maxUsers: values.maxUsers ? Number(values.maxUsers) : undefined,
     maxRoles: values.maxRoles ? Number(values.maxRoles) : undefined,
+    maxWebhooks: values.maxWebhooks ? Number(values.maxWebhooks) : undefined,
   });
 
   const createMutation = useMutation({
@@ -86,6 +89,7 @@ export default function SuperAdminPlansPage() {
     { key: "maxWarehouses", header: "Warehouse limit", render: (row) => row.maxWarehouses ?? "Unlimited" },
     { key: "maxUsers", header: "User limit", render: (row) => row.maxUsers ?? "Unlimited" },
     { key: "maxRoles", header: "Roles limit", render: (row) => row.maxRoles ?? "Unlimited" },
+    { key: "maxWebhooks", header: "Webhooks limit", render: (row) => row.maxWebhooks ?? "Unlimited" },
     {
       key: "features",
       header: "Features",
@@ -135,6 +139,7 @@ export default function SuperAdminPlansPage() {
             maxWarehouses: "",
             maxUsers: "",
             maxRoles: "",
+            maxWebhooks: "",
           }}
           onSubmit={async (values) => {
             await createMutation.mutateAsync(values);
@@ -157,6 +162,7 @@ export default function SuperAdminPlansPage() {
             maxWarehouses: editingPlan.maxWarehouses?.toString() ?? "",
             maxUsers: editingPlan.maxUsers?.toString() ?? "",
             maxRoles: editingPlan.maxRoles?.toString() ?? "",
+            maxWebhooks: editingPlan.maxWebhooks?.toString() ?? "",
           }}
           onSubmit={async (values) => {
             await updateMutation.mutateAsync({ id: editingPlan.id, values });
@@ -235,7 +241,7 @@ function PlanFormDialog({
               />
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="space-y-1.5">
               <Label htmlFor="maxWarehouses">Warehouse limit</Label>
               <Input
@@ -253,6 +259,10 @@ function PlanFormDialog({
             <div className="space-y-1.5">
               <Label htmlFor="maxRoles">Roles limit</Label>
               <Input id="maxRoles" type="number" min={1} placeholder="Unlimited" {...form.register("maxRoles")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="maxWebhooks">Webhooks limit</Label>
+              <Input id="maxWebhooks" type="number" min={1} placeholder="Unlimited" {...form.register("maxWebhooks")} />
             </div>
           </div>
           <div className="space-y-1.5">

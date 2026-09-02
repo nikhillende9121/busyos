@@ -92,11 +92,11 @@ describe("userService.list / getById", () => {
 describe("userService.create", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: null });
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: null, maxWebhooks: null });
   });
 
   it("blocks creation once the plan's user limit is reached", async () => {
-    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: 3, maxRoles: null });
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: 3, maxRoles: null, maxWebhooks: null });
     vi.mocked(userRepository.countActiveByTenant).mockResolvedValue(3);
 
     await expect(
@@ -106,7 +106,7 @@ describe("userService.create", () => {
   });
 
   it("allows creation when under the plan's user limit", async () => {
-    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: 3, maxRoles: null });
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: 3, maxRoles: null, maxWebhooks: null });
     vi.mocked(userRepository.countActiveByTenant).mockResolvedValue(2);
     vi.mocked(userRepository.findRoleForTenant).mockResolvedValue({ id: 2n } as never);
     vi.mocked(userRepository.create).mockResolvedValue(userRow() as never);

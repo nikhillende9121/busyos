@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { PriceList, PriceListItem } from "@prisma/client";
 import { priceListRepository } from "../repository/price-list.repository";
 import { AppError } from "@/shared/errors/app-error";
+import { webhookService } from "@/modules/webhook/service/webhook.service";
 import type { CreatePriceListDto, ResolvePriceDto } from "../dto/price-list.dto";
 import type { PriceListView, ResolvedPriceView } from "../types/price-list.types";
 
@@ -74,7 +75,9 @@ export const priceListService = {
       items.push(created);
     }
 
-    return toPriceListView({ ...priceList, items });
+    const view = toPriceListView({ ...priceList, items });
+    void webhookService.enqueueEvent(dto.tenantId, "PRICE_LIST_CREATED", view);
+    return view;
   },
 
   async resolvePrice(dto: ResolvePriceDto): Promise<ResolvedPriceView> {

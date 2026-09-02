@@ -37,6 +37,7 @@ const PERMISSION_CODES = [
   "UNIT.CREATE", "UNIT.DELETE", "UNIT.UPDATE", "UNIT.VIEW",
   "USER.CREATE", "USER.DELETE", "USER.UPDATE", "USER.VIEW",
   "WAREHOUSE.CREATE", "WAREHOUSE.DELETE", "WAREHOUSE.UPDATE", "WAREHOUSE.VIEW",
+  "WEBHOOK.CREATE", "WEBHOOK.DELETE", "WEBHOOK.UPDATE", "WEBHOOK.VIEW",
 ];
 
 // Module-level feature gates — see shared/middleware/with-api-auth.ts's
@@ -69,6 +70,7 @@ const FEATURE_LABELS: Record<string, string> = {
   STOCK_TRANSFER: "Stock Transfers",
   EXTRA_CHARGE: "Extra Charges",
   GST_REPORT: "GST Report",
+  WEBHOOK: "Website Integration",
 };
 const FEATURE_CODES = Object.keys(FEATURE_LABELS);
 

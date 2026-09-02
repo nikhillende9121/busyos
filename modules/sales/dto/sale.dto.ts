@@ -26,6 +26,11 @@ export type CreateSaleDto = {
   // -> Warehouse-Scoped Users), not business data — null/omitted means
   // unrestricted.
   scopedWarehouseId?: bigint | null;
+  // Set only when this sale originates from POST /api/v1/integrations/orders
+  // — see modules/webhook/service/order-ingestion.service.ts and
+  // Docs/webhooks.md §4.1. Omitted for every other channel.
+  webhookIntegrationId?: bigint;
+  externalOrderReference?: string;
 };
 
 export type SaleListDto = {

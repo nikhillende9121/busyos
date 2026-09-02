@@ -4,11 +4,12 @@ export type CreatePlanDto = {
   billingCycle: "MONTHLY" | "YEARLY";
   featureCodes?: string[];
   // Quota a subscribed tenant may not exceed when creating a new
-  // Warehouse/User/Role — omitted/undefined means unlimited. See
+  // Warehouse/User/Role/Webhook — omitted/undefined means unlimited. See
   // shared/utils/plan-limits.ts.
   maxWarehouses?: number;
   maxUsers?: number;
   maxRoles?: number;
+  maxWebhooks?: number;
 };
 
 // Full replace, not partial — see plan.service.ts's update().
@@ -21,4 +22,5 @@ export type UpdatePlanDto = {
   maxWarehouses?: number;
   maxUsers?: number;
   maxRoles?: number;
+  maxWebhooks?: number;
 };

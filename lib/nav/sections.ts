@@ -85,6 +85,10 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: "Integrations",
+    items: [{ label: "Webhooks", href: "/webhooks", permission: "WEBHOOK.VIEW", feature: "WEBHOOK" }],
+  },
+  {
     title: "Settings",
     items: [{ label: "Tenant Settings", href: "/settings", permission: "TENANT.VIEW" }],
   },

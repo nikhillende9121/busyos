@@ -77,6 +77,17 @@ export const productRepository = {
     });
   },
 
+  // Exact match on either field — used by inbound order ingestion
+  // (modules/webhook/service/order-ingestion.service.ts) to resolve an
+  // external site's own sku/barcode to an internal productId. Unlike
+  // findManyByTenant's `search` filter (fuzzy `contains`, for a human
+  // typing into a picker), this needs a precise single match.
+  findBySkuOrBarcode(tenantId: bigint, value: string) {
+    return prisma.product.findFirst({
+      where: { tenantId, deletedAt: null, OR: [{ sku: value }, { barcode: value }] },
+    });
+  },
+
   findManyByIds(tenantId: bigint, ids: bigint[]) {
     return prisma.product.findMany({
       where: { tenantId, id: { in: ids }, deletedAt: null },

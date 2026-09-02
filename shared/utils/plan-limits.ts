@@ -1,11 +1,16 @@
 import { prisma } from "@/shared/database/prisma";
 
-export type PlanLimits = { maxWarehouses: number | null; maxUsers: number | null; maxRoles: number | null };
+export type PlanLimits = {
+  maxWarehouses: number | null;
+  maxUsers: number | null;
+  maxRoles: number | null;
+  maxWebhooks: number | null;
+};
 
 // A tenant's most recent ACTIVE/TRIAL subscription determines its current
 // plan limits (null on any field means unlimited). No subscription on
 // record at all also means unlimited — a tenant mid-onboarding (its first
-// warehouse/user/role, created before superAdminTenantService.create
+// warehouse/user/role/webhook, created before superAdminTenantService.create
 // finishes opening a subscription) must never be blocked by a quota check
 // that has nothing to compare against yet.
 export async function getActivePlanLimits(tenantId: bigint): Promise<PlanLimits> {
@@ -15,11 +20,12 @@ export async function getActivePlanLimits(tenantId: bigint): Promise<PlanLimits>
     include: { plan: true },
   });
   if (!subscription) {
-    return { maxWarehouses: null, maxUsers: null, maxRoles: null };
+    return { maxWarehouses: null, maxUsers: null, maxRoles: null, maxWebhooks: null };
   }
   return {
     maxWarehouses: subscription.plan.maxWarehouses,
     maxUsers: subscription.plan.maxUsers,
     maxRoles: subscription.plan.maxRoles,
+    maxWebhooks: subscription.plan.maxWebhooks,
   };
 }

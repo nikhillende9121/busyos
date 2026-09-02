@@ -123,6 +123,32 @@ enum ShipmentStatus {
   CANCELLED
 }
 
+// Fuller than what v1 actually wires up — Discount/Coupon/PriceList
+// services are create-only today (no update/delete methods exist), so
+// only the *_CREATED variants ever fire; the rest are kept for when those
+// mutations exist, at zero schema cost. See Docs/webhooks.md §6 and
+// modules/webhook/service/webhook.service.ts's trigger call sites.
+enum WebhookEventType {
+  PRODUCT_CREATED
+  PRODUCT_UPDATED
+  PRODUCT_DELETED
+  PRICE_LIST_CREATED
+  PRICE_LIST_UPDATED
+  DISCOUNT_CREATED
+  DISCOUNT_UPDATED
+  DISCOUNT_DELETED
+  COUPON_CREATED
+  COUPON_UPDATED
+  COUPON_DELETED
+  INVENTORY_UPDATED
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
 // DRAFT: requested — toWarehouse known, fromWarehouse not chosen yet.
 // APPROVED: fromWarehouse selected + approvedQuantity set per line; stock
 // not yet moved. IN_TRANSIT: shipped, stock deducted from source.
@@ -244,6 +270,9 @@ model Plan {
   maxWarehouses Int?
   maxUsers      Int?
   maxRoles      Int?
+  // Caps registered WebhookEndpoint rows (outbound registrations), never
+  // inbound order volume — see modules/webhook/service/webhook.service.ts.
+  maxWebhooks   Int?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -377,6 +406,8 @@ model Tenant {
   taxRates              TaxRate[]
   extraCharges          ExtraCharge[]
   userDevices           UserDevice[]
+  webhookIntegration    TenantWebhookIntegration?
+  webhookEndpoints      WebhookEndpoint[]
 
   @@map("tenants")
 }
@@ -558,6 +589,7 @@ model Warehouse {
   discounts             Discount[]
   coupons               Coupon[]
   scopedUsers           User[]
+  webhookIntegrations   TenantWebhookIntegration[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1368,11 +1400,22 @@ model Sale {
   updatedBy     BigInt?
   deletedAt     DateTime?
 
-  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer          Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  warehouse         Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  terminal          Terminal?          @relation(fields: [terminalId], references: [id], onDelete: SetNull)
-  cashSession       CashSession?       @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  // Set only for sales created via POST /api/v1/integrations/orders — null
+  // for every other channel. Proves *how* the sale was created,
+  // independent of `channel` (a business concept, not an integration audit
+  // trail) — see Docs/webhooks.md §4.1. externalOrderReference is the
+  // tenant's own order id/number, echoed back verbatim for support
+  // reconciliation, and used as a second-layer dedup key alongside
+  // IdempotencyKey.
+  webhookIntegrationId   BigInt?
+  externalOrderReference String? @db.VarChar(150)
+
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer            Customer?                 @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  warehouse           Warehouse                 @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  terminal            Terminal?                 @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  cashSession         CashSession?              @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  webhookIntegration  TenantWebhookIntegration? @relation(fields: [webhookIntegrationId], references: [id], onDelete: SetNull)
   items             SaleItem[]
   returns           SaleReturn[]
   exchangeAsNewSale SaleExchange?
@@ -1387,6 +1430,7 @@ model Sale {
   @@index([warehouseId])
   @@index([status])
   @@index([channel])
+  @@index([webhookIntegrationId, externalOrderReference])
   @@map("sales")
 }
 
@@ -1640,6 +1684,90 @@ model Shipment {
   @@index([saleId])
   @@index([trackingNumber])
   @@map("shipments")
+}
+
+// ---------------------------------------------------------------------------
+// Webhooks & Website Integration — see Docs/webhooks.md.
+//
+// One TenantWebhookIntegration per tenant holds the credential used for
+// INBOUND order ingestion (apiKey/apiSecretEncrypted) plus the default
+// warehouse inbound orders draw stock from. A tenant registers any number
+// of WebhookEndpoints (capped by Plan.maxWebhooks) for OUTBOUND delivery,
+// each with its own signingSecret and event subscriptions
+// (WebhookEndpointEventType) — so one receiving system's secret can be
+// rotated without affecting another. WebhookDelivery is the log + retry
+// state for each attempted outbound POST.
+// ---------------------------------------------------------------------------
+
+model TenantWebhookIntegration {
+  id                       BigInt   @id @default(autoincrement())
+  tenantId                 BigInt   @unique
+  apiKey                   String   @unique @db.VarChar(64)
+  apiSecretEncrypted       String   @db.Text
+  defaultOnlineWarehouseId BigInt?
+  isEnabled                Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  tenant                 Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  defaultOnlineWarehouse Warehouse?        @relation(fields: [defaultOnlineWarehouseId], references: [id], onDelete: SetNull)
+  webhooks               WebhookEndpoint[]
+  sales                  Sale[]
+
+  @@map("tenant_webhook_integrations")
+}
+
+model WebhookEndpoint {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      BigInt
+  integrationId BigInt
+  url           String   @db.VarChar(500)
+  signingSecret String   @db.Text
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant      Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration TenantWebhookIntegration   @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  eventTypes  WebhookEndpointEventType[]
+  deliveries  WebhookDelivery[]
+
+  @@index([tenantId])
+  @@map("webhook_endpoints")
+}
+
+// Many-to-many (an endpoint subscribes to several event types) — a real
+// join table, matching the PlanFeature/TenantFeature/RolePermission
+// precedent, not a comma-separated column.
+model WebhookEndpointEventType {
+  webhookEndpointId BigInt
+  eventType         WebhookEventType
+
+  webhookEndpoint WebhookEndpoint @relation(fields: [webhookEndpointId], references: [id], onDelete: Cascade)
+
+  @@id([webhookEndpointId, eventType])
+  @@map("webhook_endpoint_event_types")
+}
+
+// One row per attempted delivery (a retry updates the same row's
+// attemptCount/nextRetryAt, it doesn't create a new one).
+model WebhookDelivery {
+  id                BigInt                @id @default(autoincrement())
+  webhookEndpointId BigInt
+  eventType         WebhookEventType
+  payload           Json
+  status            WebhookDeliveryStatus @default(PENDING)
+  httpStatusCode    Int?
+  attemptCount      Int                   @default(0)
+  lastAttemptedAt   DateTime?
+  nextRetryAt       DateTime?
+  createdAt         DateTime              @default(now())
+
+  webhookEndpoint WebhookEndpoint @relation(fields: [webhookEndpointId], references: [id], onDelete: Cascade)
+
+  @@index([webhookEndpointId, status])
+  @@index([nextRetryAt])
+  @@map("webhook_deliveries")
 }
 
 // ---------------------------------------------------------------------------

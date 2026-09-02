@@ -117,6 +117,21 @@ export const saleService = {
     return toSaleView(sale, taxInclusive);
   },
 
+  // Used only by modules/webhook/service/order-ingestion.service.ts for
+  // its external-reference dedup check (Docs/webhooks.md §4.1) — not
+  // exposed via any route.
+  async findByWebhookOrigin(
+    tenantId: bigint,
+    webhookIntegrationId: bigint,
+    externalOrderReference: string,
+  ): Promise<SaleView | null> {
+    const [sale, taxInclusive] = await Promise.all([
+      saleRepository.findByWebhookOrigin(tenantId, webhookIntegrationId, externalOrderReference),
+      resolveTaxInclusive(tenantId),
+    ]);
+    return sale ? toSaleView(sale, taxInclusive) : null;
+  },
+
   // A coupon (if supplied) is applied — and, if it has a usage limit,
   // counted as redeemed — at creation time, not at confirm. See
   // Docs/business-rules/discounts-and-coupons.md -> Applying at Creation
@@ -207,6 +222,8 @@ export const saleService = {
         status,
         saleDate: dto.saleDate,
         createdBy: dto.createdBy,
+        webhookIntegrationId: dto.webhookIntegrationId,
+        externalOrderReference: dto.externalOrderReference,
       });
 
       const saleItemIdByProductId = new Map<string, bigint>();
@@ -678,5 +695,6 @@ export function toSaleView(
     totalAmount: totalAmountNum.toFixed(2),
     createdAt: sale.createdAt.toISOString(),
     updatedAt: sale.updatedAt.toISOString(),
+    externalOrderReference: sale.externalOrderReference ?? null,
   };
 }

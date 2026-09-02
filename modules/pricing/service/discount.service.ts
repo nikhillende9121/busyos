@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { Discount, DiscountProduct, DiscountCategory } from "@prisma/client";
 import { discountRepository } from "../repository/discount.repository";
 import { AppError } from "@/shared/errors/app-error";
+import { webhookService } from "@/modules/webhook/service/webhook.service";
 import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import type { CreateDiscountDto, DiscountListDto, DiscountExportDto } from "../dto/discount.dto";
 import type { DiscountView } from "../types/discount.types";
@@ -100,7 +101,9 @@ export const discountService = {
       categories.push(await discountRepository.linkCategory(discount.id, categoryId));
     }
 
-    return toDiscountView({ ...discount, products, categories });
+    const view = toDiscountView({ ...discount, products, categories });
+    void webhookService.enqueueEvent(dto.tenantId, "DISCOUNT_CREATED", view);
+    return view;
   },
 };
 

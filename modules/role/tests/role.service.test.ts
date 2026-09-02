@@ -76,11 +76,11 @@ describe("roleService.create", () => {
     vi.mocked(roleRepository.create).mockResolvedValue({ id: 1n } as never);
     vi.mocked(roleRepository.replacePermissions).mockResolvedValue(undefined);
     vi.mocked(roleRepository.findByIdForTenant).mockResolvedValue(roleRow() as never);
-    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: null });
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: null, maxWebhooks: null });
   });
 
   it("blocks creation once the plan's role limit is reached", async () => {
-    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: 3 });
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: 3, maxWebhooks: null });
     vi.mocked(roleRepository.countActiveByTenant).mockResolvedValue(3);
 
     await expect(
@@ -90,7 +90,7 @@ describe("roleService.create", () => {
   });
 
   it("allows creation when under the plan's role limit", async () => {
-    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: 3 });
+    vi.mocked(getActivePlanLimits).mockResolvedValue({ maxWarehouses: null, maxUsers: null, maxRoles: 3, maxWebhooks: null });
     vi.mocked(roleRepository.countActiveByTenant).mockResolvedValue(2);
     vi.mocked(roleRepository.findPermissionsByCodes).mockResolvedValue([]);
 

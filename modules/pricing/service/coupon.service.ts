@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { Coupon, CouponProduct, CouponCategory } from "@prisma/client";
 import { couponRepository } from "../repository/coupon.repository";
 import { AppError } from "@/shared/errors/app-error";
+import { webhookService } from "@/modules/webhook/service/webhook.service";
 import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import type { CreateCouponDto, CouponListDto, CouponExportDto } from "../dto/coupon.dto";
 import type { CouponView } from "../types/coupon.types";
@@ -108,7 +109,9 @@ export const couponService = {
       categories.push(await couponRepository.linkCategory(coupon.id, categoryId));
     }
 
-    return toCouponView({ ...coupon, products, categories });
+    const view = toCouponView({ ...coupon, products, categories });
+    void webhookService.enqueueEvent(dto.tenantId, "COUPON_CREATED", view);
+    return view;
   },
 };
 

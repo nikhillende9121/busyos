@@ -7,6 +7,7 @@ export type PlanView = {
   maxWarehouses: number | null;
   maxUsers: number | null;
   maxRoles: number | null;
+  maxWebhooks: number | null;
   features: string[];
   createdAt: string;
   updatedAt: string;

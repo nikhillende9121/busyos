@@ -61,6 +61,17 @@ export const saleRepository = {
     });
   },
 
+  // Second-layer dedup for inbound order ingestion, alongside
+  // IdempotencyKey — a caller that didn't send an Idempotency-Key header
+  // but resubmits the same external order gets the existing sale back
+  // instead of a duplicate. See Docs/webhooks.md §4.1.
+  findByWebhookOrigin(tenantId: bigint, webhookIntegrationId: bigint, externalOrderReference: string) {
+    return prisma.sale.findFirst({
+      where: { tenantId, webhookIntegrationId, externalOrderReference, deletedAt: null },
+      include: includeFullSale,
+    });
+  },
+
   // Same shape as findByIdForTenant, but runs against the transaction
   // client — used at the end of create() to read back the fully-populated
   // sale (items+taxes, discounts, charges) as one consistent snapshot

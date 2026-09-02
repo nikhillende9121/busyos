@@ -5,6 +5,7 @@ import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import { priceListService } from "@/modules/pricing/service/price-list.service";
+import { webhookService } from "@/modules/webhook/service/webhook.service";
 import { toProductImageView } from "./product-image-view.mapper";
 import type { CreateProductDto, UpdateProductDto, ProductListDto, ProductExportDto } from "../dto/product.dto";
 import type { ProductView } from "../types/product.types";
@@ -93,7 +94,9 @@ export const productService = {
         status: dto.status,
         createdBy: dto.createdBy,
       });
-      return toProductView(product);
+      const view = toProductView(product);
+      void webhookService.enqueueEvent(dto.tenantId, "PRODUCT_CREATED", view);
+      return view;
     } catch (error) {
       throw toDuplicateKeyError(error);
     }
@@ -117,7 +120,9 @@ export const productService = {
         status: dto.status,
         updatedBy: dto.updatedBy,
       });
-      return toProductView(product);
+      const view = toProductView(product);
+      void webhookService.enqueueEvent(dto.tenantId, "PRODUCT_UPDATED", view);
+      return view;
     } catch (error) {
       throw toDuplicateKeyError(error);
     }
@@ -129,6 +134,7 @@ export const productService = {
       throw new AppError("RESOURCE_NOT_FOUND", "Product not found");
     }
     await productRepository.softDelete(productId, deletedBy);
+    void webhookService.enqueueEvent(tenantId, "PRODUCT_DELETED", { id: productId.toString() });
   },
 };
 

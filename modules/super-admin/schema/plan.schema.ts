@@ -12,6 +12,7 @@ export const createPlanSchema = z.object({
   maxWarehouses: z.coerce.number().int().positive().optional(),
   maxUsers: z.coerce.number().int().positive().optional(),
   maxRoles: z.coerce.number().int().positive().optional(),
+  maxWebhooks: z.coerce.number().int().positive().optional(),
 });
 
 // Same shape as create — updating a plan is a full replace, not a patch,

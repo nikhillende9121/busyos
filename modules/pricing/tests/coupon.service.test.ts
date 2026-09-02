@@ -16,7 +16,12 @@ vi.mock("../repository/coupon.repository", () => ({
   },
 }));
 
+vi.mock("@/modules/webhook/service/webhook.service", () => ({
+  webhookService: { enqueueEvent: vi.fn() },
+}));
+
 import { couponRepository } from "../repository/coupon.repository";
+import { webhookService } from "@/modules/webhook/service/webhook.service";
 import { couponService } from "../service/coupon.service";
 
 describe("couponService.create", () => {
@@ -61,6 +66,39 @@ describe("couponService.create", () => {
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
 
     expect(couponRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("enqueues a COUPON_CREATED webhook event on success", async () => {
+    vi.mocked(couponRepository.create).mockResolvedValue({
+      id: 1n,
+      tenantId: 1n,
+      code: "SAVE10",
+      type: "FLAT",
+      value: { toString: () => "10" },
+      scope: "ORDER",
+      warehouseId: null,
+      customerGroupId: null,
+      customerId: null,
+      minPurchaseAmount: null,
+      maxDiscountAmount: null,
+      usageLimitTotal: null,
+      usageLimitPerCustomer: null,
+      startDate: new Date("2026-01-01T00:00:00.000Z"),
+      endDate: null,
+      isActive: true,
+      stackable: false,
+    } as never);
+
+    await couponService.create({
+      tenantId: 1n,
+      code: "SAVE10",
+      type: "FLAT",
+      value: "10",
+      scope: "ORDER",
+      startDate: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    expect(webhookService.enqueueEvent).toHaveBeenCalledWith(1n, "COUPON_CREATED", expect.anything());
   });
 });
 

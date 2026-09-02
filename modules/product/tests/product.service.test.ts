@@ -20,8 +20,13 @@ vi.mock("@/modules/pricing/service/price-list.service", () => ({
   priceListService: { findPricedProductIds: vi.fn() },
 }));
 
+vi.mock("@/modules/webhook/service/webhook.service", () => ({
+  webhookService: { enqueueEvent: vi.fn() },
+}));
+
 import { productRepository } from "../repository/product.repository";
 import { priceListService } from "@/modules/pricing/service/price-list.service";
+import { webhookService } from "@/modules/webhook/service/webhook.service";
 import { productService } from "../service/product.service";
 
 function productRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -203,6 +208,7 @@ describe("productService.create", () => {
 
     expect(product.sku).toBe("RICE-5KG");
     expect(productRepository.categoryBelongsToTenant).toHaveBeenCalledWith(1n, 7n);
+    expect(webhookService.enqueueEvent).toHaveBeenCalledWith(1n, "PRODUCT_CREATED", expect.objectContaining({ sku: "RICE-5KG" }));
   });
 
   it("rejects a categoryId that belongs to another tenant, before ever calling create", async () => {
@@ -269,6 +275,15 @@ describe("productService.update", () => {
 
     expect(productRepository.update).not.toHaveBeenCalled();
   });
+
+  it("enqueues a PRODUCT_UPDATED webhook event on success", async () => {
+    vi.mocked(productRepository.findByIdForTenant).mockResolvedValue(productRow() as never);
+    vi.mocked(productRepository.update).mockResolvedValue(productRow({ name: "New name" }) as never);
+
+    await productService.update({ tenantId: 1n, productId: 100n, name: "New name" });
+
+    expect(webhookService.enqueueEvent).toHaveBeenCalledWith(1n, "PRODUCT_UPDATED", expect.anything());
+  });
 });
 
 describe("productService.remove", () => {
@@ -282,6 +297,7 @@ describe("productService.remove", () => {
     await productService.remove(1n, 100n, 42n);
 
     expect(productRepository.softDelete).toHaveBeenCalledWith(100n, 42n);
+    expect(webhookService.enqueueEvent).toHaveBeenCalledWith(1n, "PRODUCT_DELETED", { id: "100" });
   });
 
   it("throws RESOURCE_NOT_FOUND instead of soft-deleting a product outside the tenant", async () => {
