@@ -20,7 +20,15 @@ export const createSaleSchema = z.object({
       }),
     )
     .min(1, "at least one item is required"),
-  couponCode: z.string().min(1).max(50).optional(),
+  // Preprocessed like optionalIdString (shared/validation/id.ts): an empty
+  // string must resolve the same as an omitted field, not fail .min(1) —
+  // the create-sale form's default value is "" (not undefined), and uses
+  // this schema directly as its zodResolver, so without this an untouched
+  // coupon field blocked every submission.
+  couponCode: z.preprocess(
+    (val) => (val === "" ? undefined : val),
+    z.string().min(1).max(50).optional(),
+  ),
   taxInclusive: z.boolean().optional(),
   // Zero or more ExtraCharge catalog entries to attach to this sale (e.g.
   // shipping/packing) — resolved and taxed server-side.

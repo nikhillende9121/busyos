@@ -66,6 +66,17 @@ purely server-side — but it means:
 - A manager/admin role (or anyone without `SALE.DELIVER`) is unaffected
   and keeps seeing the full tenant list.
 
+## 6. Assignment now sends a push notification
+
+The assigned delivery person gets a push the moment ship() succeeds — no
+app change needed, it reuses the FCM payload shape already documented in
+`notification_androidChanges.md`'s deep-link table:
+```
+type: "SALE_STATUS", data: { route: "SALE_DETAIL", entityId: "<saleId>" }
+```
+`onMessageReceived` already routes this to `NavRoute.SaleDetail(id)` per
+that table — nothing new to map.
+
 ## UI changes needed
 
 - **Ship flow**: before calling ship(), fetch `/sales/delivery-assignees`

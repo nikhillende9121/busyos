@@ -11,6 +11,7 @@ import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import { rbacLookup } from "@/shared/middleware/rbac-lookup";
 import { userRepository } from "@/modules/user/repository/user.repository";
+import { notificationService } from "@/modules/notification/service/notification.service";
 import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import type { CreateSaleDto, SaleListDto, SaleExportDto } from "../dto/sale.dto";
 import type { SaleView } from "../types/sale.types";
@@ -441,10 +442,31 @@ export const saleService = {
       }
       assignee = { id: user.id, name: user.name };
     }
-    return advanceFulfillment(tenantId, saleId, "PACKED", "SHIPPED", scopedWarehouseId, {
+    const shipped = await advanceFulfillment(tenantId, saleId, "PACKED", "SHIPPED", scopedWarehouseId, {
       extraData: { assignedDeliveryUserId },
       assignedDeliveryUser: assignee,
     });
+
+    // Fire-and-forget, after the status/assignment write has already
+    // committed — a notification failure must never fail the ship() call
+    // itself. Reuses the SALE_STATUS/SALE_DETAIL payload shape already
+    // documented in Docs/deliveryAssignment_androidChanges.md and
+    // Docs/notification_androidChanges.md's deep-link table, so the app
+    // needs no new mapping for this.
+    if (assignee) {
+      Promise.resolve(
+        notificationService.sendToUsers({
+          tenantId,
+          userIds: [assignee.id],
+          title: "New Delivery Assigned",
+          message: `Sale #${shipped.saleNumber} has been assigned to you for delivery.`,
+          type: "SALE_STATUS",
+          data: { entityId: saleId.toString(), route: "SALE_DETAIL" },
+        }),
+      ).catch((err) => console.error("Failed to send delivery assignment notification:", err));
+    }
+
+    return shipped;
   },
 
   // Only the delivery person this sale was assigned to at ship() time (or

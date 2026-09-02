@@ -69,6 +69,12 @@ vi.mock("@/modules/user/repository/user.repository", () => ({
   },
 }));
 
+vi.mock("@/modules/notification/service/notification.service", () => ({
+  notificationService: {
+    sendToUsers: vi.fn(),
+  },
+}));
+
 vi.mock("@/modules/extra-charge/repository/extra-charge.repository", () => ({
   extraChargeRepository: {
     findManyByTenant: vi.fn(),
@@ -82,6 +88,7 @@ import { priceListService } from "@/modules/pricing/service/price-list.service";
 import { taxService } from "@/modules/pricing/service/tax.service";
 import { rbacLookup } from "@/shared/middleware/rbac-lookup";
 import { userRepository } from "@/modules/user/repository/user.repository";
+import { notificationService } from "@/modules/notification/service/notification.service";
 import { extraChargeRepository } from "@/modules/extra-charge/repository/extra-charge.repository";
 import { saleService, resolveSaleCharges } from "../service/sale.service";
 
@@ -759,6 +766,22 @@ describe("saleService — online fulfillment pipeline", () => {
       "SHIPPED",
       { assignedDeliveryUserId: 55n },
     );
+    expect(notificationService.sendToUsers).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 1n, userIds: [55n], type: "SALE_STATUS" }),
+    );
+  });
+
+  it("does not notify anyone when ship() is called without an assignee", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "PACKED" }) as never,
+    );
+    vi.mocked(saleRepository.updateStatus).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "SHIPPED" }) as never,
+    );
+
+    await saleService.ship(1n, 800n);
+
+    expect(notificationService.sendToUsers).not.toHaveBeenCalled();
   });
 
   it("lets the assigned delivery person confirm delivery without needing SALE.UPDATE", async () => {
