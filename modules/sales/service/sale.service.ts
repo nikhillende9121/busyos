@@ -379,7 +379,29 @@ export const saleService = {
       return { ...newSale, items: sale.items, discounts: sale.discounts, charges: sale.charges };
     });
 
-    return toSaleView(updated, await resolveTaxInclusive(tenantId));
+    const view = toSaleView(updated, await resolveTaxInclusive(tenantId));
+
+    // A POS sale is rung up by the store's own staff — they don't need to
+    // be told about their own transaction. An online/marketplace/phone
+    // order just arrived from outside and needs attention, so notify the
+    // fulfilling warehouse once it's a real, stock-committed order (not at
+    // create(), which could still be an abandoned/unpaid PENDING_PAYMENT
+    // cart). Fire-and-forget, after the transaction commits — same pattern
+    // as stock-transfer.service.ts and ship()'s assignment notification.
+    if (sale.channel !== "POS") {
+      Promise.resolve(
+        notificationService.sendToWarehouse({
+          tenantId,
+          warehouseId: sale.warehouseId,
+          title: "New Online Order",
+          message: `Sale #${view.saleNumber} (${sale.channel}) has come in and is ready to process.`,
+          type: "SALE_STATUS",
+          data: { entityId: sale.id.toString(), route: "SALE_DETAIL" },
+        }),
+      ).catch((err) => console.error("Failed to send new order notification:", err));
+    }
+
+    return view;
   },
 
   // POS-only shortcut (CONFIRMED -> COMPLETED, no further inventory change —

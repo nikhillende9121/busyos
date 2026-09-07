@@ -72,6 +72,7 @@ vi.mock("@/modules/user/repository/user.repository", () => ({
 vi.mock("@/modules/notification/service/notification.service", () => ({
   notificationService: {
     sendToUsers: vi.fn(),
+    sendToWarehouse: vi.fn(),
   },
 }));
 
@@ -621,6 +622,36 @@ describe("saleService.confirm", () => {
 
     await expect(saleService.confirm(1n, 800n)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     expect(inventoryService.recordMovement).not.toHaveBeenCalled();
+  });
+
+  it("notifies the fulfilling warehouse when a non-POS sale is confirmed", async () => {
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "PENDING_PAYMENT", warehouseId: 10n }) as never,
+    );
+    vi.mocked(saleRepository.updateStatus).mockResolvedValue(
+      saleRow({ channel: "ONLINE", status: "CONFIRMED" }) as never,
+    );
+
+    await saleService.confirm(1n, 800n);
+
+    expect(notificationService.sendToWarehouse).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 1n, warehouseId: 10n, type: "SALE_STATUS" }),
+    );
+  });
+
+  it("does not notify anyone when a POS sale is confirmed", async () => {
+    // create() lands a POS sale directly at COMPLETED (stock already moved
+    // then) — that's the required starting status initialStatus("POS")
+    // checks confirm() against, odd as it looks for a status named
+    // "COMPLETED" to be a precondition rather than an outcome.
+    vi.mocked(saleRepository.findByIdForTenant).mockResolvedValue(
+      saleRow({ channel: "POS", status: "COMPLETED" }) as never,
+    );
+    vi.mocked(saleRepository.updateStatus).mockResolvedValue(saleRow({ channel: "POS", status: "COMPLETED" }) as never);
+
+    await saleService.confirm(1n, 800n);
+
+    expect(notificationService.sendToWarehouse).not.toHaveBeenCalled();
   });
 
   it("propagates an insufficient-stock rejection from the inventory module without confirming", async () => {
