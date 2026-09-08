@@ -228,10 +228,15 @@ function ApproveDialog({
   const fromWarehouseId = form.watch("fromWarehouseId");
   const { data: fromBalances } = useQuery({
     queryKey: queryKeys.list("inventory-balance", { warehouseId: fromWarehouseId }),
-    queryFn: () => apiClient.get<InventoryBalanceView[]>("/inventory/balance", { warehouseId: fromWarehouseId }),
+    queryFn: () =>
+      apiClient.get<Paginated<InventoryBalanceView>>("/inventory/balance", {
+        warehouseId: fromWarehouseId,
+        pageSize: 100,
+      }),
     enabled: Boolean(fromWarehouseId),
   });
-  const availableQuantity = (productId: string) => fromBalances?.find((b) => b.productId === productId)?.quantity ?? "0";
+  const availableQuantity = (productId: string) =>
+    fromBalances?.items.find((b) => b.productId === productId)?.quantity ?? "0";
 
   const approveMutation = useMutation({
     mutationFn: (data: { fromWarehouseId: string; items: { stockTransferItemId: string; approvedQuantity: string }[] }) =>

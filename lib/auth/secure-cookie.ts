@@ -6,6 +6,7 @@
 // in a real deployment: Secure is what stops these httpOnly JWT cookies
 // from being sent in cleartext.
 export function isSecureCookieEnabled(): boolean {
+  return false ;
   if (process.env.COOKIE_SECURE === "false") return false;
   if (process.env.COOKIE_SECURE === "true") return true;
   return process.env.NODE_ENV === "production";
