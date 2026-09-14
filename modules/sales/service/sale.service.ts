@@ -12,6 +12,7 @@ import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import { rbacLookup } from "@/shared/middleware/rbac-lookup";
 import { userRepository } from "@/modules/user/repository/user.repository";
 import { notificationService } from "@/modules/notification/service/notification.service";
+import { creditService } from "@/modules/credit/service/credit.service";
 import { buildPagination, type Paginated } from "@/shared/utils/pagination";
 import type { CreateSaleDto, SaleListDto, SaleExportDto } from "../dto/sale.dto";
 import type { SaleView } from "../types/sale.types";
@@ -194,6 +195,21 @@ export const saleService = {
       }
     }
 
+    // Credit requires a customer regardless of whether the CUSTOMER feature
+    // itself is on — there is no "walk-in" credit sale (see
+    // Docs/credit_module_plan.md §1). Checked here, not only inside
+    // credit.service.ts, so an unauthorized/disabled-feature credit attempt
+    // fails before any inventory/pricing work runs, not mid-transaction.
+    if (dto.paymentMethod === "CREDIT") {
+      if (!dto.customerId || !customer) {
+        throw new AppError("VALIDATION_ERROR", "customerId is required for a CREDIT sale");
+      }
+      const creditEnabled = await rbacLookup.isFeatureEnabledForTenant(dto.tenantId, "CREDIT_PAYMENT");
+      if (!creditEnabled) {
+        throw new AppError("FEATURE_NOT_ENABLED", 'Feature "CREDIT_PAYMENT" is not enabled for this tenant');
+      }
+    }
+
     const warehouse = await saleRepository.findWarehouseForTenant(dto.tenantId, dto.warehouseId);
     if (!warehouse) {
       throw new AppError("VALIDATION_ERROR", "warehouseId does not belong to this tenant");
@@ -306,6 +322,32 @@ export const saleService = {
           name: charge.name,
           amount: new Prisma.Decimal(charge.amount),
           taxAmount: new Prisma.Decimal(charge.taxAmount),
+        });
+      }
+
+      // Credit charge + its Payment row, atomic with the rest of the sale —
+      // recordCharge enforces the credit limit and throws
+      // CREDIT_LIMIT_EXCEEDED (rolling back this entire transaction) if the
+      // sale would exceed it. See Docs/credit_module_plan.md §7.
+      if (dto.paymentMethod === "CREDIT" && dto.customerId) {
+        await creditService.recordCharge(
+          {
+            tenantId: dto.tenantId,
+            customerId: dto.customerId,
+            amount: quote.grandTotal,
+            referenceId: created.id,
+            createdBy: dto.createdBy,
+          },
+          tx,
+        );
+        await saleRepository.createPayment(tx, {
+          tenantId: dto.tenantId,
+          saleId: created.id,
+          referenceType: "SALE",
+          referenceId: created.id,
+          amount: new Prisma.Decimal(quote.grandTotal),
+          paymentMethod: "CREDIT",
+          createdBy: dto.createdBy,
         });
       }
 

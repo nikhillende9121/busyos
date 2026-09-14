@@ -1,4 +1,4 @@
-import type { SaleChannel } from "@prisma/client";
+import type { SaleChannel, PaymentMethod } from "@prisma/client";
 
 export type CreateSaleItemDto = {
   productId: bigint;
@@ -21,6 +21,10 @@ export type CreateSaleDto = {
   // Zero or more ExtraCharge catalog entries to attach — see
   // modules/pricing/service/tax.service.ts.
   extraChargeIds?: bigint[];
+  // Only CREDIT does anything (see sale.service.ts's create()) — every
+  // other value/omission is a no-op, matching this schema's existing lack
+  // of a general payments[] concept.
+  paymentMethod?: PaymentMethod;
   createdBy?: bigint;
   // The caller's warehouse scope (see Docs/business-rules/roles-and-permissions.md
   // -> Warehouse-Scoped Users), not business data — null/omitted means

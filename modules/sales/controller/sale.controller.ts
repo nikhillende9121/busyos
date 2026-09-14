@@ -90,6 +90,7 @@ export const saleController = {
         })),
         couponCode: input.couponCode,
         extraChargeIds: input.extraChargeIds?.map((id) => BigInt(id)),
+        paymentMethod: input.paymentMethod,
         createdBy: auth.userId,
         scopedWarehouseId: auth.warehouseId,
       });

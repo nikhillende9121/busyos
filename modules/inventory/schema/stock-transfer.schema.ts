@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { idString } from "@/shared/validation/id";
-import { positiveDecimalString } from "@/shared/validation/decimal";
+import { positiveDecimalString, nonNegativeDecimalString } from "@/shared/validation/decimal";
 import { paginationQueryFields, dateRangeQueryFields } from "@/shared/validation/list-query";
 
 // Only the destination is known at request time — the source warehouse
@@ -22,25 +22,32 @@ export type CreateStockTransferInput = z.infer<typeof createStockTransferSchema>
 // fromWarehouseId !== toWarehouseId can't be checked here — toWarehouseId
 // isn't part of this request body, only the transfer it's applied to — so
 // that check lives in the service, against the persisted transfer.
+// 0 is a valid approvedQuantity — every requested line must be included
+// (see resolveStageQuantities in stock-transfer.service.ts), and a line the
+// source warehouse simply can't spare any of needs a way to say "none",
+// not just "less than requested". requestedQuantity at creation stays
+// positive — asking for zero of a product isn't a real request.
 export const approveStockTransferSchema = z.object({
   fromWarehouseId: idString,
   items: z
     .array(
       z.object({
         stockTransferItemId: idString,
-        approvedQuantity: positiveDecimalString,
+        approvedQuantity: nonNegativeDecimalString,
       }),
     )
     .min(1, "at least one item is required"),
 });
 export type ApproveStockTransferInput = z.infer<typeof approveStockTransferSchema>;
 
+// Allows 0 for the same reason as approvedQuantity above — a line approved
+// at 0 must still be shippable at 0 (every item is required at every stage).
 export const shipStockTransferSchema = z.object({
   items: z
     .array(
       z.object({
         stockTransferItemId: idString,
-        shippedQuantity: positiveDecimalString,
+        shippedQuantity: nonNegativeDecimalString,
       }),
     )
     .min(1, "at least one item is required"),
@@ -52,7 +59,7 @@ export const receiveStockTransferSchema = z.object({
     .array(
       z.object({
         stockTransferItemId: idString,
-        receivedQuantity: positiveDecimalString,
+        receivedQuantity: nonNegativeDecimalString,
       }),
     )
     .min(1, "at least one item is required"),

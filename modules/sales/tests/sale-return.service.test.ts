@@ -19,14 +19,28 @@ vi.mock("../repository/sale-return.repository", () => ({
   },
 }));
 
+vi.mock("../repository/sale.repository", () => ({
+  saleRepository: {
+    findCreditPaymentForSale: vi.fn(),
+  },
+}));
+
 vi.mock("@/modules/inventory/service/inventory.service", () => ({
   inventoryService: {
     recordMovement: vi.fn(),
   },
 }));
 
+vi.mock("@/modules/credit/service/credit.service", () => ({
+  creditService: {
+    recordCreditNote: vi.fn(),
+  },
+}));
+
 import { saleReturnRepository } from "../repository/sale-return.repository";
+import { saleRepository } from "../repository/sale.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
+import { creditService } from "@/modules/credit/service/credit.service";
 import { saleReturnService } from "../service/sale-return.service";
 
 function saleItemRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -266,6 +280,73 @@ describe("saleReturnService.create", () => {
         items: [{ saleItemId: 900n, quantity: "5" }],
       }),
     ).resolves.toMatchObject({ saleId: "800" });
+  });
+});
+
+describe("saleReturnService.create — credit note integration", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(saleReturnRepository.create).mockResolvedValue({
+      id: 1100n,
+      saleId: 800n,
+      reason: "Customer changed mind",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      createdBy: null,
+    } as never);
+    vi.mocked(saleReturnRepository.createItem).mockImplementation(
+      (async (_tx: unknown, data: Record<string, unknown>) => ({ id: 1200n, ...data })) as never,
+    );
+  });
+
+  it("records a credit note when the originating sale was paid via CREDIT", async () => {
+    vi.mocked(saleReturnRepository.findSaleForTenant).mockResolvedValue(
+      saleRow({ customerId: 30n }) as never,
+    );
+    vi.mocked(saleRepository.findCreditPaymentForSale).mockResolvedValue({ id: 1n, paymentMethod: "CREDIT" } as never);
+
+    await saleReturnService.create({
+      tenantId: 1n,
+      saleId: 800n,
+      reason: "Customer changed mind",
+      items: [{ saleItemId: 900n, quantity: "5" }],
+    });
+
+    expect(creditService.recordCreditNote).toHaveBeenCalledWith(
+      { tenantId: 1n, customerId: 30n, amount: "400", referenceId: 1100n, createdBy: undefined },
+      "sale-return-tx",
+    );
+  });
+
+  it("does not touch the credit ledger when the originating sale was not paid via CREDIT", async () => {
+    vi.mocked(saleReturnRepository.findSaleForTenant).mockResolvedValue(
+      saleRow({ customerId: 30n }) as never,
+    );
+    vi.mocked(saleRepository.findCreditPaymentForSale).mockResolvedValue(null);
+
+    await saleReturnService.create({
+      tenantId: 1n,
+      saleId: 800n,
+      reason: "Customer changed mind",
+      items: [{ saleItemId: 900n, quantity: "5" }],
+    });
+
+    expect(creditService.recordCreditNote).not.toHaveBeenCalled();
+  });
+
+  it("never looks up a credit payment for a sale with no customer", async () => {
+    vi.mocked(saleReturnRepository.findSaleForTenant).mockResolvedValue(
+      saleRow({ customerId: null }) as never,
+    );
+
+    await saleReturnService.create({
+      tenantId: 1n,
+      saleId: 800n,
+      reason: "Customer changed mind",
+      items: [{ saleItemId: 900n, quantity: "5" }],
+    });
+
+    expect(saleRepository.findCreditPaymentForSale).not.toHaveBeenCalled();
+    expect(creditService.recordCreditNote).not.toHaveBeenCalled();
   });
 });
 

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  Boxes,
   ShoppingCart,
   Warehouse,
   Users,
@@ -18,11 +17,12 @@ import {
   FileCheck2,
   Lock,
 } from "lucide-react";
+import { GiShoppingBag } from "react-icons/gi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { HeroPreview } from "@/components/landing/hero-preview";
-import { PricingSection } from "@/components/landing/pricing-section";
+// import { PricingSection } from "@/components/landing/pricing-section";
 import { RoleWorkflows } from "@/components/landing/role-workflows";
 import { FaqSection } from "@/components/landing/faq-section";
 
@@ -98,14 +98,9 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3.5">
           <Link href="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-90">
             <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md">
-              <Boxes className="size-5" />
+              <GiShoppingBag className="size-5" />
             </div>
-            <div>
-              <span className="font-heading text-lg font-bold tracking-tight text-foreground">RetailX</span>
-              <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                IMPS One
-              </span>
-            </div>
+            <span className="font-heading text-lg font-bold tracking-tight text-foreground">RetailX</span>
           </Link>
 
           <nav className="hidden items-center gap-6 text-xs font-medium text-muted-foreground md:flex">
@@ -114,9 +109,6 @@ export default function LandingPage() {
             </a>
             <a href="#solutions" className="transition-colors hover:text-foreground">
               How We Help
-            </a>
-            <a href="#pricing" className="transition-colors hover:text-foreground">
-              Pricing Plans
             </a>
             <a href="#faq" className="transition-colors hover:text-foreground">
               FAQ
@@ -151,13 +143,13 @@ export default function LandingPage() {
             </h1>
 
             <p className="mx-auto mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg">
-              RetailX (IMPS One) replaces disconnected billing apps, spreadsheets, and guesswork with one unified platform
+              RetailX replaces disconnected billing apps, spreadsheets, and guesswork with one unified platform
               where live stock, per-store pricing, purchasing, and point-of-sale always agree.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <Button size="lg" className="gap-2 px-6" render={<Link href="/login">Sign in to Workspace</Link>} />
-              <Button size="lg" variant="outline" render={<Link href="#pricing">See Pricing & Plans</Link>} />
+              <Button size="lg" variant="outline" render={<Link href="#solutions">See How We Help</Link>} />
             </div>
 
             {/* Quick feature highlights beneath CTA */}
@@ -293,7 +285,7 @@ export default function LandingPage() {
         </section>
 
         {/* PRICING & FEATURE MATRIX SECTION */}
-        <PricingSection loginHref="/login" />
+        {/* <PricingSection loginHref="/login" /> */}
 
         {/* SECURITY & ARCHITECTURE TRUST */}
         <section className="border-t bg-background py-20">
@@ -380,8 +372,8 @@ export default function LandingPage() {
       <footer className="border-t bg-card">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-6 py-8 sm:flex-row text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
-            <Boxes className="size-4 text-primary" />
-            <span className="font-heading font-semibold text-foreground">RetailX / IMPS One</span>
+            <GiShoppingBag className="size-4 text-primary" />
+            <span className="font-heading font-semibold text-foreground">RetailX</span>
             <span>— Multi-tenant inventory, purchase & sales platform.</span>
           </div>
           <div>

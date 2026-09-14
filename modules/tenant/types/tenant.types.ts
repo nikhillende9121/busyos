@@ -13,6 +13,7 @@ export type TenantSettingsView = {
   homeState: string | null;
   taxInclusivePricing: boolean;
   defaultTaxRateId: string | null;
+  defaultCreditLimit: string | null;
 };
 
 export type TenantProfile = {

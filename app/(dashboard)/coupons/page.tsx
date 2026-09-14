@@ -66,8 +66,8 @@ export default function CouponsPage() {
     queryFn: () => apiClient.get<CategoryOption[]>("/categories"),
   });
   const { data: customers } = useQuery({
-    queryKey: queryKeys.list("customers"),
-    queryFn: () => apiClient.get<CustomerOption[]>("/customers"),
+    queryKey: queryKeys.list("customers", { pageSize: 100 }),
+    queryFn: () => apiClient.get<Paginated<CustomerOption>>("/customers", { page: 1, pageSize: 100 }),
   });
   const { data: customerGroups } = useQuery({
     queryKey: queryKeys.list("customer-groups"),
@@ -76,7 +76,7 @@ export default function CouponsPage() {
 
   const productOptions = (products?.items ?? []).map((p) => ({ label: `${p.sku} — ${p.name}`, value: p.id }));
   const categoryOptions = (categories ?? []).map((c) => ({ label: c.name, value: c.id }));
-  const customerOptions = (customers ?? []).map((c) => ({ label: c.name, value: c.id }));
+  const customerOptions = (customers?.items ?? []).map((c) => ({ label: c.name, value: c.id }));
   const customerGroupOptions = (customerGroups ?? []).map((g) => ({ label: g.name, value: g.id }));
 
   const defaultFormValues = {

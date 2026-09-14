@@ -83,6 +83,7 @@ function toTenantProfile(
           homeState: tenant.settings.homeState,
           taxInclusivePricing: tenant.settings.taxInclusivePricing,
           defaultTaxRateId: tenant.settings.defaultTaxRateId?.toString() ?? null,
+          defaultCreditLimit: tenant.settings.defaultCreditLimit?.toString() ?? null,
         }
       : null,
   };

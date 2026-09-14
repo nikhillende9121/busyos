@@ -9,4 +9,5 @@ export type UpdateTenantSettingsDto = {
   homeState?: string;
   taxInclusivePricing?: boolean;
   defaultTaxRateId?: bigint | null;
+  defaultCreditLimit?: string | null;
 };

@@ -55,6 +55,7 @@ describe("tenantService.getProfile", () => {
           homeState: "Maharashtra",
           taxInclusivePricing: false,
           defaultTaxRateId: 5n,
+          defaultCreditLimit: null,
         },
       }) as never,
     );
@@ -71,6 +72,7 @@ describe("tenantService.getProfile", () => {
       homeState: "Maharashtra",
       taxInclusivePricing: false,
       defaultTaxRateId: "5",
+      defaultCreditLimit: null,
     });
   });
 

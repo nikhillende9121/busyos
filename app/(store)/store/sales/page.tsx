@@ -22,6 +22,7 @@ import type { ProductView } from "@/modules/product/types/product.types";
 import type { ExtraChargeView } from "@/modules/extra-charge/types/extra-charge.types";
 import type { InventoryBalanceView } from "@/modules/inventory/types/inventory.types";
 import type { PriceListView } from "@/modules/pricing/types/price-list.types";
+import type { CreditSummaryView } from "@/modules/credit/types/credit.types";
 import type { Paginated } from "@/shared/utils/pagination";
 
 // Best-effort "buy 1" price per product, from this store's own price list
@@ -256,10 +257,32 @@ function CheckoutScreen({
 
   const { hasFeature } = useAuth();
   const isCustomerFeatureEnabled = hasFeature("CUSTOMER");
+  const isCreditEnabled = hasFeature("CREDIT_PAYMENT");
+
+  // Pay-with-credit is a plain toggle, not a full payment-method picker —
+  // every other method (CASH/CARD/BANK_TRANSFER/UPI/CHEQUE) has no ledger
+  // effect at all yet (see Docs/credit_module_plan.md's note on
+  // PaymentMethod), so offering them here would imply tracking that
+  // doesn't exist. Unchecked = today's exact behavior (no paymentMethod
+  // sent at all).
+  const [payByCredit, setPayByCredit] = useState(false);
+
+  // Fetched the moment Credit is toggled on (not only after Charge is
+  // pressed) so the cashier sees the customer's due/limit before
+  // committing — see Docs/credit_module_plan.md §10.
+  const { data: creditSummary, isLoading: isCreditSummaryLoading } = useQuery({
+    queryKey: queryKeys.detail("credit-summary", customerId || "none"),
+    queryFn: () => apiClient.get<CreditSummaryView>(`/credit/customers/${customerId}/summary`),
+    enabled: isCreditEnabled && payByCredit && Boolean(customerId),
+  });
 
   const handleCharge = async () => {
     if (isCustomerFeatureEnabled && !customerId) {
       toast.error("Select a customer first.");
+      return;
+    }
+    if (payByCredit && !customerId) {
+      toast.error("Select a customer to pay with credit.");
       return;
     }
     if (cart.length === 0) {
@@ -281,8 +304,20 @@ function CheckoutScreen({
         couponCode: couponCode || undefined,
         extraChargeIds,
         items: cart.map((l) => ({ productId: l.productId, quantity: String(l.quantity) })),
+        paymentMethod: payByCredit ? "CREDIT" : undefined,
       });
     } catch (error) {
+      if (error instanceof ApiError && error.code === "CREDIT_LIMIT_EXCEEDED") {
+        const details = error.details as
+          | { currentBalance: string; creditLimit: string; attemptedChargeAmount: string }
+          | undefined;
+        toast.error(
+          details
+            ? `Credit limit exceeded — due ${details.currentBalance}, limit ${details.creditLimit}, this sale ${details.attemptedChargeAmount}.`
+            : error.message,
+        );
+        return;
+      }
       toast.error(error instanceof ApiError ? error.message : "Something went wrong. Please try again.");
     }
   };
@@ -416,6 +451,47 @@ function CheckoutScreen({
             </div>
           ))}
         </div>
+
+        {isCreditEnabled && (
+          <div className="space-y-1.5 rounded-md border p-2">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={payByCredit}
+                onCheckedChange={(checked) => setPayByCredit(Boolean(checked))}
+                disabled={!customerId}
+              />
+              Pay with Credit
+            </label>
+            {!customerId && payByCredit === false && (
+              <p className="text-xs text-muted-foreground">Select a customer to pay with credit.</p>
+            )}
+            {payByCredit && customerId && (
+              <div className="rounded-md bg-muted/50 p-2 text-xs">
+                {isCreditSummaryLoading ? (
+                  <span className="text-muted-foreground">Checking credit…</span>
+                ) : creditSummary ? (
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                    <span>
+                      Due <span className="font-medium tabular-nums">{creditSummary.currentBalance}</span>
+                    </span>
+                    <span>
+                      Limit{" "}
+                      <span className="font-medium tabular-nums">{creditSummary.creditLimit ?? "Unlimited"}</span>
+                    </span>
+                    <span>
+                      Available{" "}
+                      <span className="font-medium tabular-nums">
+                        {creditSummary.availableCredit ?? "Unlimited"}
+                      </span>
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">Could not load credit status.</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <Input

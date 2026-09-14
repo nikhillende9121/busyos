@@ -27,7 +27,8 @@ const UNSET_TAX_RATE = "__unset__";
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
-  const { can } = useAuth();
+  const { can, hasFeature } = useAuth();
+  const isCreditEnabled = hasFeature("CREDIT_PAYMENT");
 
   const { data: tenant, isLoading } = useQuery({
     queryKey: queryKeys.detail("tenants", "me"),
@@ -59,6 +60,7 @@ export default function SettingsPage() {
         homeState: tenant.settings.homeState ?? "",
         taxInclusivePricing: tenant.settings.taxInclusivePricing,
         defaultTaxRateId: tenant.settings.defaultTaxRateId ?? undefined,
+        defaultCreditLimit: tenant.settings.defaultCreditLimit ?? "",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -77,6 +79,10 @@ export default function SettingsPage() {
       const payload: UpdateTenantSettingsInput = {
         ...values,
         defaultTaxRateId: values.defaultTaxRateId === UNSET_TAX_RATE ? null : values.defaultTaxRateId,
+        // "" means the field was cleared — send null to reset back to "no
+        // tenant default" (unlimited unless a customer has their own
+        // override), not an empty-string decimal.
+        defaultCreditLimit: values.defaultCreditLimit === "" ? null : values.defaultCreditLimit,
       };
       await updateMutation.mutateAsync(payload);
     } catch (error) {
@@ -215,6 +221,28 @@ export default function SettingsPage() {
                   )}
                 />
               </div>
+              {isCreditEnabled && (
+                <div className="space-y-1.5 border-t pt-4">
+                  <Label htmlFor="defaultCreditLimit">Default customer credit limit</Label>
+                  <Input
+                    id="defaultCreditLimit"
+                    inputMode="decimal"
+                    placeholder="No default (unlimited unless a customer has their own limit)"
+                    disabled={!canEdit}
+                    {...form.register("defaultCreditLimit")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Tenant-wide fallback max outstanding balance for a customer buying on Credit — used only when
+                    that customer has no limit of their own set on the Credit Report page. Leave blank for
+                    unlimited.
+                  </p>
+                  {form.formState.errors.defaultCreditLimit && (
+                    <p className="text-sm text-destructive">
+                      {String(form.formState.errors.defaultCreditLimit.message ?? "Invalid value")}
+                    </p>
+                  )}
+                </div>
+              )}
               {canEdit && (
                 <Button type="submit" disabled={form.formState.isSubmitting}>
                   {form.formState.isSubmitting ? "Saving…" : "Save settings"}

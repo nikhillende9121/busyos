@@ -191,6 +191,28 @@ enum PaymentMethod {
   CREDIT
 }
 
+// See Docs/credit_module_plan.md §3. OPENING/SALE_CHARGE increase what a
+// customer owes (direction OUT); PAYMENT/CREDIT_NOTE decrease it (direction
+// IN). ADJUSTMENT is a manual correction and may go either way.
+enum CreditTransactionType {
+  OPENING
+  SALE_CHARGE
+  PAYMENT
+  CREDIT_NOTE
+  ADJUSTMENT
+}
+
+enum CreditDirection {
+  IN
+  OUT
+}
+
+enum CreditReferenceType {
+  SALE
+  SALE_RETURN
+  MANUAL
+}
+
 enum ExchangeDirection {
   CUSTOMER_OWES
   REFUND_DUE
@@ -408,6 +430,8 @@ model Tenant {
   userDevices           UserDevice[]
   webhookIntegration    TenantWebhookIntegration?
   webhookEndpoints      WebhookEndpoint[]
+  customerCredits       CustomerCredit[]
+  creditTransactions    CreditTransaction[]
 
   @@map("tenants")
 }
@@ -436,6 +460,10 @@ model TenantSetting {
   // Fallback tax rate for a Product with no taxRateId of its own. Tax
   // calculation errors (not silently 0%) if a line has neither.
   defaultTaxRateId    BigInt?
+  // Tenant-wide fallback maximum credit balance for CustomerCredit.creditLimit
+  // — null means no tenant default (a customer with no creditLimit of their
+  // own is unlimited). See Docs/credit_module_plan.md §3.3.
+  defaultCreditLimit  Decimal? @db.Decimal(14, 2)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -462,18 +490,18 @@ model TenantFeature {
 }
 
 model TenantSubscription {
-  id        BigInt             @id @default(autoincrement())
-  tenantId  BigInt
-  planId    BigInt
-  startDate DateTime
-  endDate   DateTime
-  status    SubscriptionStatus @default(TRIAL)
+  id             BigInt             @id @default(autoincrement())
+  tenantId       BigInt
+  planId         BigInt
+  startDate      DateTime
+  endDate        DateTime
+  status         SubscriptionStatus @default(TRIAL)
   // Snapshot of Plan.price at the moment this contract was created — a
   // signed contract doesn't silently reprice itself if the Plan's price
   // changes later. See modules/super-admin/service/subscription.service.ts.
-  priceAtSigning Decimal       @db.Decimal(12, 2)
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  priceAtSigning Decimal            @db.Decimal(12, 2)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   plan   Plan   @relation(fields: [planId], references: [id], onDelete: Restrict)
@@ -583,8 +611,8 @@ model Warehouse {
   inventoryBalances     InventoryBalance[]
   inventoryTransactions InventoryTransaction[]
   stockAdjustments      StockAdjustment[]
-  transfersFrom         StockTransfer[]        @relation("TransferFromWarehouse")
-  transfersTo           StockTransfer[]        @relation("TransferToWarehouse")
+  transfersFrom         StockTransfer[]            @relation("TransferFromWarehouse")
+  transfersTo           StockTransfer[]            @relation("TransferToWarehouse")
   terminals             Terminal[]
   priceLists            PriceList[]
   discounts             Discount[]
@@ -801,24 +829,24 @@ model TaxRate {
 }
 
 model ExtraCharge {
-  id        BigInt              @id @default(autoincrement())
-  tenantId  BigInt
-  name      String              @db.VarChar(100)
-  calcType  ExtraChargeCalcType
-  value     Decimal             @db.Decimal(14, 2)
-  isTaxable Boolean             @default(false)
-  taxRateId BigInt?
-  isActive  Boolean             @default(true)
+  id                 BigInt              @id @default(autoincrement())
+  tenantId           BigInt
+  name               String              @db.VarChar(100)
+  calcType           ExtraChargeCalcType
+  value              Decimal             @db.Decimal(14, 2)
+  isTaxable          Boolean             @default(false)
+  taxRateId          BigInt?
+  isActive           Boolean             @default(true)
   // null = applicable to all channels. Comma-separated SaleChannel values
   // (e.g. "ONLINE,MARKETPLACE") when scoped — see
   // Docs/business-rules/sales.md. Stored as a flat string rather than a
   // join table because there are only 4 enum values.
-  applicableChannels String?           @db.VarChar(200)
-  createdAt DateTime            @default(now())
-  updatedAt DateTime            @updatedAt
-  createdBy BigInt?
-  updatedBy BigInt?
-  deletedAt DateTime?
+  applicableChannels String?             @db.VarChar(200)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  createdBy          BigInt?
+  updatedBy          BigInt?
+  deletedAt          DateTime?
 
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   taxRate         TaxRate?         @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
@@ -1230,17 +1258,83 @@ model Customer {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customerGroup     CustomerGroup?     @relation(fields: [customerGroupId], references: [id], onDelete: SetNull)
-  sales             Sale[]
-  priceLists        PriceList[] // per-customer negotiated price overrides (rare exception, not the default)
-  discounts         Discount[] // per-customer promotion overrides (rare exception, not the default)
-  coupons           Coupon[] // per-customer promotion overrides (rare exception, not the default)
-  couponRedemptions CouponRedemption[]
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerGroup      CustomerGroup?      @relation(fields: [customerGroupId], references: [id], onDelete: SetNull)
+  sales              Sale[]
+  priceLists         PriceList[] // per-customer negotiated price overrides (rare exception, not the default)
+  discounts          Discount[] // per-customer promotion overrides (rare exception, not the default)
+  coupons            Coupon[] // per-customer promotion overrides (rare exception, not the default)
+  couponRedemptions  CouponRedemption[]
+  credit             CustomerCredit?
+  creditTransactions CreditTransaction[]
 
   @@index([tenantId])
   @@index([customerGroupId])
   @@map("customers")
+}
+
+// ---------------------------------------------------------------------------
+// Credit Payment Module — see Docs/credit_module_plan.md for full design.
+// CustomerCredit is the per-customer config + denormalized running balance;
+// CreditTransaction is the append-only ledger every balance change is
+// derived from. Feature-gated by Feature.code = "CREDIT_PAYMENT"
+// (TenantFeature), never on by default.
+// ---------------------------------------------------------------------------
+
+model CustomerCredit {
+  id             BigInt   @id @default(autoincrement())
+  tenantId       BigInt
+  customerId     BigInt   @unique
+  // Per-customer override. null falls back to TenantSetting.defaultCreditLimit;
+  // both null means unlimited — same "null is unlimited" convention as
+  // Plan.maxWarehouses etc.
+  creditLimit    Decimal? @db.Decimal(14, 2)
+  // Day-of-month (1-28) for the monthly settlement/due-date reminder; null
+  // means no recurring reminder configured.
+  settlementDay  Int?
+  // Denormalized running balance — always equal to the sum of this
+  // customer's CreditTransaction deltas. Kept as a column so the credit
+  // -limit check on every credit sale doesn't have to re-sum the whole
+  // ledger, mirroring TenantSetting's own scalar-config-off-the-hot-path
+  // reasoning.
+  currentBalance Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("customer_credits")
+}
+
+model CreditTransaction {
+  id             BigInt                @id @default(autoincrement())
+  tenantId       BigInt
+  customerId     BigInt
+  type           CreditTransactionType
+  direction      CreditDirection
+  amount         Decimal               @db.Decimal(14, 2)
+  // Snapshot of CustomerCredit.currentBalance immediately after this row —
+  // makes the ledger renderable without recomputation and gives an audit
+  // trail if the denormalized balance ever drifts.
+  runningBalance Decimal               @db.Decimal(14, 2)
+  // Set only for PAYMENT rows — how the customer actually settled
+  // (CASH/UPI/BANK_TRANSFER/...); never CREDIT itself, that would be
+  // meaningless here.
+  paymentMethod  PaymentMethod?
+  referenceType  CreditReferenceType?
+  referenceId    BigInt?
+  remarks        String?               @db.VarChar(255)
+  createdAt      DateTime              @default(now())
+  createdBy      BigInt?
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, customerId, createdAt])
+  @@index([referenceType, referenceId])
+  @@map("credit_transactions")
 }
 
 // ---------------------------------------------------------------------------
@@ -1420,21 +1514,21 @@ model Sale {
   // display the assignee's name.
   assignedDeliveryUserId BigInt?
 
-  tenant              Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer            Customer?                 @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  warehouse           Warehouse                 @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  terminal            Terminal?                 @relation(fields: [terminalId], references: [id], onDelete: SetNull)
-  cashSession         CashSession?              @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
-  webhookIntegration  TenantWebhookIntegration? @relation(fields: [webhookIntegrationId], references: [id], onDelete: SetNull)
-  assignedDeliveryUser User?             @relation(fields: [assignedDeliveryUserId], references: [id], onDelete: SetNull)
-  items             SaleItem[]
-  returns           SaleReturn[]
-  exchangeAsNewSale SaleExchange?
-  payments          Payment[]          @relation("SalePayments")
-  shipments         Shipment[]
-  discounts         SaleDiscount[]
-  couponRedemptions CouponRedemption[]
-  charges           SaleCharge[]
+  tenant               Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer             Customer?                 @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  warehouse            Warehouse                 @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  terminal             Terminal?                 @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  cashSession          CashSession?              @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  webhookIntegration   TenantWebhookIntegration? @relation(fields: [webhookIntegrationId], references: [id], onDelete: SetNull)
+  assignedDeliveryUser User?                     @relation(fields: [assignedDeliveryUserId], references: [id], onDelete: SetNull)
+  items                SaleItem[]
+  returns              SaleReturn[]
+  exchangeAsNewSale    SaleExchange?
+  payments             Payment[]                 @relation("SalePayments")
+  shipments            Shipment[]
+  discounts            SaleDiscount[]
+  couponRedemptions    CouponRedemption[]
+  charges              SaleCharge[]
 
   @@index([tenantId])
   @@index([customerId])

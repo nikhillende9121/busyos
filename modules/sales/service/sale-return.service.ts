@@ -2,7 +2,9 @@ import { Prisma } from "@prisma/client";
 import type { SaleReturn, SaleReturnItem, SaleItem, SaleDiscount, SaleStatus } from "@prisma/client";
 import { prisma } from "@/shared/database/prisma";
 import { saleReturnRepository } from "../repository/sale-return.repository";
+import { saleRepository } from "../repository/sale.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
+import { creditService } from "@/modules/credit/service/credit.service";
 import { AppError } from "@/shared/errors/app-error";
 import { assertWarehouseAccess } from "@/shared/utils/assert-warehouse-access";
 import { buildPagination, type Paginated } from "@/shared/utils/pagination";
@@ -69,6 +71,15 @@ export const saleReturnService = {
   async create(dto: CreateSaleReturnDto): Promise<SaleReturnView> {
     const { sale, lines } = await resolveReturnLines(dto);
 
+    // A return against a sale that was paid via CREDIT reduces the
+    // customer's outstanding due amount (a "credit note") instead of — or
+    // in addition to — any other refund mechanism, automatically, with no
+    // separate manual step. This codebase only tracks one payment method
+    // per sale (no split-tender), so the sale either was or wasn't a
+    // CREDIT sale — see Docs/credit_module_plan.md §9.
+    const creditPayment = sale.customerId ? await saleRepository.findCreditPaymentForSale(dto.saleId) : null;
+    const totalRefundAmount = lines.reduce((sum, line) => sum.add(line.refundAmount), new Prisma.Decimal(0));
+
     const created = await prisma.$transaction(async (tx) => {
       const saleReturn = await saleReturnRepository.create(tx, {
         saleId: dto.saleId,
@@ -106,6 +117,19 @@ export const saleReturnService = {
         );
 
         items.push({ ...createdItem, saleItem: line.item });
+      }
+
+      if (creditPayment && sale.customerId && totalRefundAmount.greaterThan(0)) {
+        await creditService.recordCreditNote(
+          {
+            tenantId: dto.tenantId,
+            customerId: sale.customerId,
+            amount: totalRefundAmount.toString(),
+            referenceId: saleReturn.id,
+            createdBy: dto.createdBy,
+          },
+          tx,
+        );
       }
 
       return { ...saleReturn, items };

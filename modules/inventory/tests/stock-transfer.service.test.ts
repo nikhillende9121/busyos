@@ -246,6 +246,25 @@ describe("stockTransferService.approve", () => {
       expect.objectContaining({ warehouseId: 20n, title: "Stock Transfer Approved" }),
     );
   });
+
+  it("allows approving a line at 0 when the source has none to spare", async () => {
+    vi.mocked(stockTransferRepository.findByIdForTenant).mockResolvedValue(
+      transferRow({ status: "DRAFT", fromWarehouseId: null }) as never,
+    );
+    vi.mocked(stockTransferRepository.updateStatus).mockResolvedValue(
+      transferRow({ status: "APPROVED", fromWarehouseId: 10n }) as never,
+    );
+
+    const transfer = await stockTransferService.approve({
+      tenantId: 1n,
+      transferId: 400n,
+      fromWarehouseId: 10n,
+      items: [{ stockTransferItemId: 500n, approvedQuantity: "0" }],
+    });
+
+    expect(transfer.items[0].approvedQuantity).toBe("0");
+    expect(inventoryService.recordMovement).not.toHaveBeenCalled();
+  });
 });
 
 describe("stockTransferService.ship", () => {
@@ -338,6 +357,28 @@ describe("stockTransferService.ship", () => {
       "transfer-tx",
     );
   });
+
+  it("skips the inventory movement for a line approved (and shipped) at 0", async () => {
+    vi.mocked(stockTransferRepository.findByIdForTenant).mockResolvedValue(
+      transferRow({
+        status: "APPROVED",
+        items: [{ ...transferRow().items[0], approvedQuantity: new Prisma.Decimal("0") }],
+      }) as never,
+    );
+    vi.mocked(stockTransferRepository.updateStatus).mockResolvedValue(
+      transferRow({ status: "IN_TRANSIT" }) as never,
+    );
+
+    const transfer = await stockTransferService.ship({
+      tenantId: 1n,
+      transferId: 400n,
+      items: [{ stockTransferItemId: 500n, shippedQuantity: "0" }],
+    });
+
+    expect(transfer.status).toBe("IN_TRANSIT");
+    expect(transfer.items[0].shippedQuantity).toBe("0");
+    expect(inventoryService.recordMovement).not.toHaveBeenCalled();
+  });
 });
 
 describe("stockTransferService.receive", () => {
@@ -425,6 +466,28 @@ describe("stockTransferService.receive", () => {
       }),
       "transfer-tx",
     );
+  });
+
+  it("skips the inventory movement for a line shipped (and received) at 0", async () => {
+    vi.mocked(stockTransferRepository.findByIdForTenant).mockResolvedValue(
+      transferRow({
+        status: "IN_TRANSIT",
+        items: [{ ...transferRow().items[0], shippedQuantity: new Prisma.Decimal("0") }],
+      }) as never,
+    );
+    vi.mocked(stockTransferRepository.updateStatus).mockResolvedValue(
+      transferRow({ status: "COMPLETED" }) as never,
+    );
+
+    const transfer = await stockTransferService.receive({
+      tenantId: 1n,
+      transferId: 400n,
+      items: [{ stockTransferItemId: 500n, receivedQuantity: "0" }],
+    });
+
+    expect(transfer.status).toBe("COMPLETED");
+    expect(transfer.items[0].receivedQuantity).toBe("0");
+    expect(inventoryService.recordMovement).not.toHaveBeenCalled();
   });
 });
 

@@ -18,12 +18,20 @@ vi.mock("../repository/sale.repository", () => ({
     createItem: vi.fn(),
     createItemTaxes: vi.fn(),
     createCharge: vi.fn(),
+    createPayment: vi.fn(),
+    findCreditPaymentForSale: vi.fn(),
     updateStatus: vi.fn(),
     findDiscountsForSale: vi.fn(),
     findCustomerForTenant: vi.fn(),
     findWarehouseForTenant: vi.fn(),
     findProductForTenant: vi.fn(),
     findExtraChargeForTenant: vi.fn(),
+  },
+}));
+
+vi.mock("@/modules/credit/service/credit.service", () => ({
+  creditService: {
+    recordCharge: vi.fn(),
   },
 }));
 
@@ -91,6 +99,7 @@ import { rbacLookup } from "@/shared/middleware/rbac-lookup";
 import { userRepository } from "@/modules/user/repository/user.repository";
 import { notificationService } from "@/modules/notification/service/notification.service";
 import { extraChargeRepository } from "@/modules/extra-charge/repository/extra-charge.repository";
+import { creditService } from "@/modules/credit/service/credit.service";
 import { saleService, resolveSaleCharges } from "../service/sale.service";
 
 // Matches the single { productId: 100n, quantity: "2" } item every test in
@@ -462,6 +471,126 @@ describe("saleService.create", () => {
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
 
     expect(saleRepository.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("saleService.create — CREDIT payment method", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(saleRepository.findCustomerForTenant).mockResolvedValue({
+      id: 30n,
+      customerGroupId: null,
+    } as never);
+    vi.mocked(saleRepository.findWarehouseForTenant).mockResolvedValue({ id: 10n } as never);
+    vi.mocked(saleRepository.findProductForTenant).mockResolvedValue({
+      id: 100n,
+      categoryId: null,
+    } as never);
+    vi.mocked(priceListService.resolvePrice).mockResolvedValue({ priceListId: "1", price: "630" } as never);
+    vi.mocked(saleRepository.createItem).mockResolvedValue(saleRow().items[0] as never);
+    vi.mocked(saleRepository.findDiscountsForSale).mockResolvedValue([]);
+    vi.mocked(promotionService.quote).mockResolvedValue(EMPTY_QUOTE as never);
+    vi.mocked(taxService.resolveTaxInclusivePricing).mockResolvedValue(false);
+    vi.mocked(saleRepository.create).mockResolvedValue(saleRow({ status: "COMPLETED" }) as never);
+    vi.mocked(saleRepository.findByIdTx).mockResolvedValue(saleRow({ status: "COMPLETED" }) as never);
+    vi.mocked(rbacLookup.isFeatureEnabledForTenant).mockResolvedValue(true);
+  });
+
+  it("rejects a CREDIT sale with no customer, before opening a transaction", async () => {
+    await expect(
+      saleService.create({
+        tenantId: 1n,
+        warehouseId: 10n,
+        channel: "POS",
+        saleDate: new Date(),
+        items: [{ productId: 100n, quantity: "2" }],
+        paymentMethod: "CREDIT",
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    expect(saleRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a CREDIT sale when the CREDIT_PAYMENT feature is disabled for the tenant", async () => {
+    vi.mocked(rbacLookup.isFeatureEnabledForTenant).mockResolvedValue(false);
+
+    await expect(
+      saleService.create({
+        tenantId: 1n,
+        customerId: 30n,
+        warehouseId: 10n,
+        channel: "POS",
+        saleDate: new Date(),
+        items: [{ productId: 100n, quantity: "2" }],
+        paymentMethod: "CREDIT",
+      }),
+    ).rejects.toMatchObject({ code: "FEATURE_NOT_ENABLED" });
+
+    expect(saleRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("records a credit charge and a CREDIT Payment row for the sale total, inside the transaction", async () => {
+    vi.mocked(creditService.recordCharge).mockResolvedValue({} as never);
+
+    await saleService.create({
+      tenantId: 1n,
+      customerId: 30n,
+      warehouseId: 10n,
+      channel: "POS",
+      saleDate: new Date(),
+      items: [{ productId: 100n, quantity: "2" }],
+      paymentMethod: "CREDIT",
+    });
+
+    expect(creditService.recordCharge).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 1n, customerId: 30n, amount: "1260", referenceId: 800n }),
+      "sale-tx",
+    );
+    expect(saleRepository.createPayment).toHaveBeenCalledWith(
+      "sale-tx",
+      expect.objectContaining({
+        tenantId: 1n,
+        saleId: 800n,
+        referenceType: "SALE",
+        referenceId: 800n,
+        paymentMethod: "CREDIT",
+        amount: new Prisma.Decimal("1260"),
+      }),
+    );
+  });
+
+  it("rolls back the whole sale when the credit limit would be exceeded", async () => {
+    vi.mocked(creditService.recordCharge).mockRejectedValue(
+      new AppError("CREDIT_LIMIT_EXCEEDED", "This would exceed the customer's credit limit"),
+    );
+
+    await expect(
+      saleService.create({
+        tenantId: 1n,
+        customerId: 30n,
+        warehouseId: 10n,
+        channel: "POS",
+        saleDate: new Date(),
+        items: [{ productId: 100n, quantity: "2" }],
+        paymentMethod: "CREDIT",
+      }),
+    ).rejects.toMatchObject({ code: "CREDIT_LIMIT_EXCEEDED" });
+
+    expect(saleRepository.createPayment).not.toHaveBeenCalled();
+  });
+
+  it("does not touch the credit ledger for a non-CREDIT sale", async () => {
+    await saleService.create({
+      tenantId: 1n,
+      customerId: 30n,
+      warehouseId: 10n,
+      channel: "POS",
+      saleDate: new Date(),
+      items: [{ productId: 100n, quantity: "2" }],
+    });
+
+    expect(creditService.recordCharge).not.toHaveBeenCalled();
+    expect(saleRepository.createPayment).not.toHaveBeenCalled();
   });
 });
 

@@ -10,6 +10,7 @@ type TenantSettingsWrite = {
   homeState?: string;
   taxInclusivePricing?: boolean;
   defaultTaxRateId?: bigint | null;
+  defaultCreditLimit?: string | null;
 };
 
 // Prisma queries only, scoped by tenantId — see MODULES.md -> repository/.

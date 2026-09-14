@@ -277,18 +277,23 @@ export const stockTransferService = {
     const updated = await prisma.$transaction(async (tx) => {
       for (const item of transfer.items) {
         const shippedQuantity = shippedQuantities.get(item.id.toString())!;
-        await inventoryService.recordMovement(
-          {
-            tenantId: dto.tenantId,
-            warehouseId: fromWarehouseId,
-            productId: item.productId,
-            transactionType: "TRANSFER_OUT",
-            quantityDelta: `-${shippedQuantity.toString()}`,
-            referenceType: "STOCK_TRANSFER",
-            referenceId: transfer.id,
-          },
-          tx,
-        );
+        // A line approved at 0 (the source had none to spare) ships at 0
+        // too — nothing actually moved, so skip writing a no-op ledger
+        // entry rather than recording a zero-quantity TRANSFER_OUT.
+        if (!shippedQuantity.isZero()) {
+          await inventoryService.recordMovement(
+            {
+              tenantId: dto.tenantId,
+              warehouseId: fromWarehouseId,
+              productId: item.productId,
+              transactionType: "TRANSFER_OUT",
+              quantityDelta: `-${shippedQuantity.toString()}`,
+              referenceType: "STOCK_TRANSFER",
+              referenceId: transfer.id,
+            },
+            tx,
+          );
+        }
         await stockTransferRepository.updateItemStage(tx, item.id, { shippedQuantity });
       }
       const newTransfer = await stockTransferRepository.updateStatus(tx, transfer.id, "IN_TRANSIT");
@@ -337,18 +342,22 @@ export const stockTransferService = {
     const updated = await prisma.$transaction(async (tx) => {
       for (const item of transfer.items) {
         const receivedQuantity = receivedQuantities.get(item.id.toString())!;
-        await inventoryService.recordMovement(
-          {
-            tenantId: dto.tenantId,
-            warehouseId: transfer.toWarehouseId,
-            productId: item.productId,
-            transactionType: "TRANSFER_IN",
-            quantityDelta: receivedQuantity.toString(),
-            referenceType: "STOCK_TRANSFER",
-            referenceId: transfer.id,
-          },
-          tx,
-        );
+        // Same reasoning as ship() — a line that shipped at 0 receives at
+        // 0 too; skip the no-op ledger entry.
+        if (!receivedQuantity.isZero()) {
+          await inventoryService.recordMovement(
+            {
+              tenantId: dto.tenantId,
+              warehouseId: transfer.toWarehouseId,
+              productId: item.productId,
+              transactionType: "TRANSFER_IN",
+              quantityDelta: receivedQuantity.toString(),
+              referenceType: "STOCK_TRANSFER",
+              referenceId: transfer.id,
+            },
+            tx,
+          );
+        }
         await stockTransferRepository.updateItemStage(tx, item.id, { receivedQuantity });
       }
       const newTransfer = await stockTransferRepository.updateStatus(tx, transfer.id, "COMPLETED");

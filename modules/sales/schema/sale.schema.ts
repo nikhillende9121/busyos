@@ -33,6 +33,11 @@ export const createSaleSchema = z.object({
   // Zero or more ExtraCharge catalog entries to attach to this sale (e.g.
   // shipping/packing) — resolved and taxed server-side.
   extraChargeIds: z.array(idString).optional(),
+  // Optional — this schema still has no general payments[] concept (only
+  // CREDIT does anything today; every other value/omission is a no-op, see
+  // sale.service.ts's create()). Requires customerId and the
+  // CREDIT_PAYMENT feature — see Docs/credit_module_plan.md §4/§7.
+  paymentMethod: z.enum(["CASH", "CARD", "BANK_TRANSFER", "UPI", "CHEQUE", "CREDIT"]).optional(),
 });
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
 

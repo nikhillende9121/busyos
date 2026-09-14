@@ -101,6 +101,21 @@ export const saleRepository = {
     return tx.saleCharge.create({ data });
   },
 
+  // Only written for a CREDIT sale today (see sale.service.ts's create()) —
+  // every other payment method has no ledger row at all yet, matching this
+  // schema's existing lack of a payments[] concept at sale creation.
+  createPayment(tx: Db, data: Prisma.PaymentUncheckedCreateInput) {
+    return tx.payment.create({ data });
+  },
+
+  // Used by sale-return.service.ts (Docs/credit_module_plan.md §9) to
+  // decide whether a return needs a credit-note reduction — a sale either
+  // was, or wasn't, paid via CREDIT; there's no partial/mixed-method
+  // tracking to attribute across.
+  findCreditPaymentForSale(saleId: bigint) {
+    return prisma.payment.findFirst({ where: { saleId, paymentMethod: "CREDIT" } });
+  },
+
   findDiscountsForSale(tx: Db, saleId: bigint) {
     return tx.saleDiscount.findMany({ where: { saleId } });
   },
