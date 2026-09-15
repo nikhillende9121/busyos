@@ -116,6 +116,20 @@ export const saleRepository = {
     return prisma.payment.findFirst({ where: { saleId, paymentMethod: "CREDIT" } });
   },
 
+  // See Docs/batch_expiry_tracking_plan.md §9 — one row per batch a sale
+  // line's FEFO pick drew from. Only written for a batch-tracked product's
+  // line.
+  createItemBatch(tx: Db, data: Prisma.SaleItemBatchUncheckedCreateInput) {
+    return tx.saleItemBatch.create({ data });
+  },
+
+  // Used by cancel() (full reversal, replaying exactly what was drawn) and
+  // sale-return.service.ts (partial, prorated across these) — see
+  // Docs/batch_expiry_tracking_plan.md §9/§10.
+  findItemBatches(tx: Db, saleItemId: bigint) {
+    return tx.saleItemBatch.findMany({ where: { saleItemId } });
+  },
+
   findDiscountsForSale(tx: Db, saleId: bigint) {
     return tx.saleDiscount.findMany({ where: { saleId } });
   },

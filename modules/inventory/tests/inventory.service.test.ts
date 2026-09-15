@@ -18,6 +18,11 @@ vi.mock("../repository/inventory.repository", () => ({
     createAdjustmentItem: vi.fn(),
     findWarehouseForTenant: vi.fn(),
     findProductForTenant: vi.fn(),
+    ensureAndLockBatch: vi.fn(),
+    updateBatchQuantity: vi.fn(),
+    lockBatchById: vi.fn(),
+    lockBatchesForFefo: vi.fn(),
+    findBatchForTenant: vi.fn(),
   },
 }));
 
@@ -345,6 +350,212 @@ describe("inventoryService.createStockAdjustment", () => {
     expect(inventoryRepository.createTransaction).toHaveBeenCalledWith(
       "outer-tx",
       expect.objectContaining({ referenceType: "STOCK_ADJUSTMENT", referenceId: 900n }),
+    );
+  });
+
+  it("requires productBatchId when the product tracks batches", async () => {
+    vi.mocked(inventoryRepository.findProductForTenant).mockResolvedValue({ id: 100n, trackBatches: true } as never);
+
+    await expect(
+      inventoryService.createStockAdjustment({
+        tenantId: 1n,
+        warehouseId: 10n,
+        reason: "Write off expired stock",
+        items: [{ productId: 100n, quantityDelta: "-5" }],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a productBatchId that doesn't belong to this product/warehouse", async () => {
+    vi.mocked(inventoryRepository.findProductForTenant).mockResolvedValue({ id: 100n, trackBatches: true } as never);
+    vi.mocked(inventoryRepository.findBatchForTenant).mockResolvedValue(null);
+
+    await expect(
+      inventoryService.createStockAdjustment({
+        tenantId: 1n,
+        warehouseId: 10n,
+        reason: "Write off expired stock",
+        items: [{ productId: 100n, quantityDelta: "-5", productBatchId: 500n }],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("passes productBatchId through to the adjustment item and the movement when valid", async () => {
+    vi.mocked(inventoryRepository.findProductForTenant).mockResolvedValue({ id: 100n, trackBatches: true } as never);
+    vi.mocked(inventoryRepository.findBatchForTenant).mockResolvedValue({ id: 500n } as never);
+    vi.mocked(inventoryRepository.lockBatchById).mockResolvedValue(new Prisma.Decimal("20"));
+
+    await inventoryService.createStockAdjustment({
+      tenantId: 1n,
+      warehouseId: 10n,
+      reason: "Write off expired stock",
+      items: [{ productId: 100n, quantityDelta: "-5", productBatchId: 500n }],
+    });
+
+    expect(inventoryRepository.createAdjustmentItem).toHaveBeenCalledWith(
+      "outer-tx",
+      expect.objectContaining({ productBatchId: 500n }),
+    );
+    expect(inventoryRepository.updateBatchQuantity).toHaveBeenCalledWith("outer-tx", 500n, new Prisma.Decimal("15"));
+    expect(inventoryRepository.createTransaction).toHaveBeenCalledWith(
+      "outer-tx",
+      expect.objectContaining({ productBatchId: 500n }),
+    );
+  });
+});
+
+describe("inventoryService.recordMovement — batch sync", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("keeps the batch quantity in lockstep with the aggregate balance", async () => {
+    vi.mocked(inventoryRepository.ensureAndLockBalance).mockResolvedValue(new Prisma.Decimal("50"));
+    vi.mocked(inventoryRepository.lockBatchById).mockResolvedValue(new Prisma.Decimal("10"));
+
+    await inventoryService.recordMovement({
+      tenantId: 1n,
+      warehouseId: 10n,
+      productId: 100n,
+      transactionType: "SALE_OUT",
+      quantityDelta: "-4",
+      referenceType: "SALE",
+      referenceId: 1n,
+      productBatchId: 500n,
+    });
+
+    expect(inventoryRepository.updateBatchQuantity).toHaveBeenCalledWith("outer-tx", 500n, new Prisma.Decimal("6"));
+    expect(inventoryRepository.createTransaction).toHaveBeenCalledWith(
+      "outer-tx",
+      expect.objectContaining({ productBatchId: 500n }),
+    );
+  });
+
+  it("blocks a movement that would take a specific batch below zero, even if the aggregate has room", async () => {
+    vi.mocked(inventoryRepository.ensureAndLockBalance).mockResolvedValue(new Prisma.Decimal("500"));
+    vi.mocked(inventoryRepository.lockBatchById).mockResolvedValue(new Prisma.Decimal("3"));
+
+    await expect(
+      inventoryService.recordMovement({
+        tenantId: 1n,
+        warehouseId: 10n,
+        productId: 100n,
+        transactionType: "SALE_OUT",
+        quantityDelta: "-4",
+        referenceType: "SALE",
+        referenceId: 1n,
+        productBatchId: 500n,
+      }),
+    ).rejects.toMatchObject({ code: "INSUFFICIENT_STOCK" });
+
+    expect(inventoryRepository.updateBatchQuantity).not.toHaveBeenCalled();
+  });
+
+  it("never touches ProductBatch when productBatchId is omitted", async () => {
+    vi.mocked(inventoryRepository.ensureAndLockBalance).mockResolvedValue(new Prisma.Decimal("50"));
+
+    await inventoryService.recordMovement({
+      tenantId: 1n,
+      warehouseId: 10n,
+      productId: 100n,
+      transactionType: "SALE_OUT",
+      quantityDelta: "-4",
+      referenceType: "SALE",
+      referenceId: 1n,
+    });
+
+    expect(inventoryRepository.lockBatchById).not.toHaveBeenCalled();
+    expect(inventoryRepository.updateBatchQuantity).not.toHaveBeenCalled();
+  });
+});
+
+describe("inventoryService.resolveFefoBatches", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("picks the soonest-expiring batch(es) first until the needed quantity is covered", async () => {
+    vi.mocked(inventoryRepository.lockBatchesForFefo).mockResolvedValue([
+      { id: 1n, quantity: new Prisma.Decimal("5") },
+      { id: 2n, quantity: new Prisma.Decimal("10") },
+      { id: 3n, quantity: new Prisma.Decimal("10") },
+    ]);
+
+    const picks = await inventoryService.resolveFefoBatches("tx" as never, 10n, 100n, "8");
+
+    expect(picks).toEqual([
+      { productBatchId: 1n, quantity: "5" },
+      { productBatchId: 2n, quantity: "3" },
+    ]);
+  });
+
+  it("draws from exactly one batch when it fully covers the need", async () => {
+    vi.mocked(inventoryRepository.lockBatchesForFefo).mockResolvedValue([
+      { id: 1n, quantity: new Prisma.Decimal("20") },
+    ]);
+
+    const picks = await inventoryService.resolveFefoBatches("tx" as never, 10n, 100n, "8");
+
+    expect(picks).toEqual([{ productBatchId: 1n, quantity: "8" }]);
+  });
+
+  it("throws INSUFFICIENT_STOCK when every batch combined can't cover the need", async () => {
+    vi.mocked(inventoryRepository.lockBatchesForFefo).mockResolvedValue([
+      { id: 1n, quantity: new Prisma.Decimal("2") },
+      { id: 2n, quantity: new Prisma.Decimal("3") },
+    ]);
+
+    await expect(inventoryService.resolveFefoBatches("tx" as never, 10n, 100n, "8")).rejects.toMatchObject({
+      code: "INSUFFICIENT_STOCK",
+    });
+  });
+
+  it("returns nothing when quantityNeeded is already zero", async () => {
+    vi.mocked(inventoryRepository.lockBatchesForFefo).mockResolvedValue([
+      { id: 1n, quantity: new Prisma.Decimal("5") },
+    ]);
+
+    const picks = await inventoryService.resolveFefoBatches("tx" as never, 10n, 100n, "0");
+
+    expect(picks).toEqual([]);
+  });
+});
+
+describe("inventoryService.ensureBatch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("delegates to ensureAndLockBatch and returns just the id", async () => {
+    vi.mocked(inventoryRepository.ensureAndLockBatch).mockResolvedValue({
+      id: 42n,
+      quantity: new Prisma.Decimal("0"),
+    });
+
+    const result = await inventoryService.ensureBatch(
+      {
+        tenantId: 1n,
+        warehouseId: 10n,
+        productId: 100n,
+        batchNumber: "LOT-001",
+        expiryDate: new Date("2027-01-01"),
+        costPrice: "50.00",
+      },
+      "tx" as never,
+    );
+
+    expect(result).toEqual({ id: 42n });
+    expect(inventoryRepository.ensureAndLockBatch).toHaveBeenCalledWith(
+      "tx",
+      1n,
+      10n,
+      100n,
+      "LOT-001",
+      new Date("2027-01-01"),
+      null,
+      new Prisma.Decimal("50.00"),
     );
   });
 });

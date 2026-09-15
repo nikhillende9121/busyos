@@ -60,6 +60,7 @@ const FEATURE_LABELS: Record<string, string> = {
   CUSTOMER: "Customers",
   CUSTOMER_GROUP: "Customer Groups",
   CREDIT_PAYMENT: "Credit Payments",
+  BATCH_TRACKING: "Batch & Expiry Tracking",
   PURCHASE: "Purchasing",
   PURCHASE_RETURN: "Purchase Returns",
   SALES: "Sales / POS",

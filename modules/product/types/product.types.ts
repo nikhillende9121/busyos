@@ -13,6 +13,7 @@ export type ProductView = {
   brandId: string | null;
   unitId: string | null;
   taxRateId: string | null;
+  trackBatches: boolean;
   // Ordered by sortOrder ascending — images[0] is the primary/thumbnail
   // (see modules/product/service/product-image.service.ts).
   images: ProductImageView[];

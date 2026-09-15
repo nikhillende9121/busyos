@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type { Sale, SaleChannel, SaleItem, SaleItemTax, SaleDiscount, SaleCharge, SaleStatus, Customer, Tenant, TenantSetting, Product, TaxComponent } from "@prisma/client";
 import { prisma } from "@/shared/database/prisma";
+import type { Db } from "@/shared/database/transaction-client";
 import { saleRepository } from "../repository/sale.repository";
 import { inventoryService } from "@/modules/inventory/service/inventory.service";
 import { promotionService } from "@/modules/pricing/service/promotion.service";
@@ -214,7 +215,7 @@ export const saleService = {
     if (!warehouse) {
       throw new AppError("VALIDATION_ERROR", "warehouseId does not belong to this tenant");
     }
-    const products = new Map<string, { categoryId: bigint | null }>();
+    const products = new Map<string, { categoryId: bigint | null; trackBatches: boolean }>();
     // Index-aligned with dto.items (not keyed by productId) so two lines
     // for the same product resolve and price independently.
     const resolvedPrices: string[] = [];
@@ -226,7 +227,7 @@ export const saleService = {
           `productId ${item.productId.toString()} does not belong to this tenant`,
         );
       }
-      products.set(item.productId.toString(), { categoryId: product.categoryId });
+      products.set(item.productId.toString(), { categoryId: product.categoryId, trackBatches: product.trackBatches });
       resolvedPrices.push(
         await resolveItemPrice({
           tenantId: dto.tenantId,
@@ -353,18 +354,16 @@ export const saleService = {
 
       if (status === "COMPLETED") {
         for (const item of dto.items) {
-          await inventoryService.recordMovement(
-            {
-              tenantId: dto.tenantId,
-              warehouseId: dto.warehouseId,
-              productId: item.productId,
-              transactionType: "SALE_OUT",
-              quantityDelta: `-${item.quantity}`,
-              referenceType: "SALE",
-              referenceId: created.id,
-            },
-            tx,
-          );
+          await fulfillSaleLine(tx, {
+            tenantId: dto.tenantId,
+            warehouseId: dto.warehouseId,
+            productId: item.productId,
+            quantity: item.quantity,
+            trackBatches: products.get(item.productId.toString())?.trackBatches ?? false,
+            saleId: created.id,
+            saleItemId: saleItemIdByProductId.get(item.productId.toString())!,
+            createdBy: dto.createdBy,
+          });
         }
       }
 
@@ -404,18 +403,15 @@ export const saleService = {
 
     const updated = await prisma.$transaction(async (tx) => {
       for (const item of sale.items) {
-        await inventoryService.recordMovement(
-          {
-            tenantId,
-            warehouseId: sale.warehouseId,
-            productId: item.productId,
-            transactionType: "SALE_OUT",
-            quantityDelta: `-${item.quantity.toString()}`,
-            referenceType: "SALE",
-            referenceId: sale.id,
-          },
-          tx,
-        );
+        await fulfillSaleLine(tx, {
+          tenantId,
+          warehouseId: sale.warehouseId,
+          productId: item.productId,
+          quantity: item.quantity.toString(),
+          trackBatches: item.product?.trackBatches ?? false,
+          saleId: sale.id,
+          saleItemId: item.id,
+        });
       }
       const newSale = await saleRepository.updateStatus(tx, sale.id, targetStatus);
       return { ...newSale, items: sale.items, discounts: sale.discounts, charges: sale.charges };
@@ -587,18 +583,15 @@ export const saleService = {
 
     const updated = await prisma.$transaction(async (tx) => {
       for (const item of sale.items) {
-        await inventoryService.recordMovement(
-          {
-            tenantId,
-            warehouseId: sale.warehouseId,
-            productId: item.productId,
-            transactionType: "SALE_RETURN_IN",
-            quantityDelta: item.quantity.toString(),
-            referenceType: "SALE",
-            referenceId: sale.id,
-          },
-          tx,
-        );
+        await reverseSaleLine(tx, {
+          tenantId,
+          warehouseId: sale.warehouseId,
+          productId: item.productId,
+          quantity: item.quantity.toString(),
+          trackBatches: item.product?.trackBatches ?? false,
+          saleId: sale.id,
+          saleItemId: item.id,
+        });
       }
       const newSale = await saleRepository.updateStatus(tx, sale.id, "CANCELLED");
       return { ...newSale, items: sale.items, discounts: sale.discounts, charges: sale.charges };
@@ -671,6 +664,116 @@ async function advanceFulfillment(
     },
     await resolveTaxInclusive(tenantId),
   );
+}
+
+// Fulfills one sale line's stock decrement — plain single recordMovement
+// for a non-batch-tracked product (unchanged from before this existed),
+// or a FEFO pick + one recordMovement per batch drawn from + a
+// SaleItemBatch row per pick for a batch-tracked one. Shared by create()
+// (COMPLETED/POS) and confirm() — both are "stock actually leaves now"
+// points. See Docs/batch_expiry_tracking_plan.md §9.
+async function fulfillSaleLine(
+  tx: Db,
+  params: {
+    tenantId: bigint;
+    warehouseId: bigint;
+    productId: bigint;
+    quantity: string;
+    trackBatches: boolean;
+    saleId: bigint;
+    saleItemId: bigint;
+    createdBy?: bigint;
+  },
+): Promise<void> {
+  if (!params.trackBatches) {
+    await inventoryService.recordMovement(
+      {
+        tenantId: params.tenantId,
+        warehouseId: params.warehouseId,
+        productId: params.productId,
+        transactionType: "SALE_OUT",
+        quantityDelta: `-${params.quantity}`,
+        referenceType: "SALE",
+        referenceId: params.saleId,
+        createdBy: params.createdBy,
+      },
+      tx,
+    );
+    return;
+  }
+
+  const picks = await inventoryService.resolveFefoBatches(tx, params.warehouseId, params.productId, params.quantity);
+  for (const pick of picks) {
+    await inventoryService.recordMovement(
+      {
+        tenantId: params.tenantId,
+        warehouseId: params.warehouseId,
+        productId: params.productId,
+        transactionType: "SALE_OUT",
+        quantityDelta: `-${pick.quantity}`,
+        referenceType: "SALE",
+        referenceId: params.saleId,
+        createdBy: params.createdBy,
+        productBatchId: pick.productBatchId,
+      },
+      tx,
+    );
+    await saleRepository.createItemBatch(tx, {
+      saleItemId: params.saleItemId,
+      productBatchId: pick.productBatchId,
+      quantity: new Prisma.Decimal(pick.quantity),
+    });
+  }
+}
+
+// Full reversal of a sale line's stock decrement (cancel()) — for a
+// batch-tracked product, replays exactly the batches fulfillSaleLine drew
+// from (never a fresh FEFO pick, which could restore stock to the wrong
+// batch entirely). See Docs/batch_expiry_tracking_plan.md §10.
+async function reverseSaleLine(
+  tx: Db,
+  params: {
+    tenantId: bigint;
+    warehouseId: bigint;
+    productId: bigint;
+    quantity: string;
+    trackBatches: boolean;
+    saleId: bigint;
+    saleItemId: bigint;
+  },
+): Promise<void> {
+  if (!params.trackBatches) {
+    await inventoryService.recordMovement(
+      {
+        tenantId: params.tenantId,
+        warehouseId: params.warehouseId,
+        productId: params.productId,
+        transactionType: "SALE_RETURN_IN",
+        quantityDelta: params.quantity,
+        referenceType: "SALE",
+        referenceId: params.saleId,
+      },
+      tx,
+    );
+    return;
+  }
+
+  const batches = await saleRepository.findItemBatches(tx, params.saleItemId);
+  for (const batch of batches) {
+    await inventoryService.recordMovement(
+      {
+        tenantId: params.tenantId,
+        warehouseId: params.warehouseId,
+        productId: params.productId,
+        transactionType: "SALE_RETURN_IN",
+        quantityDelta: batch.quantity.toString(),
+        referenceType: "SALE",
+        referenceId: params.saleId,
+        productBatchId: batch.productBatchId,
+      },
+      tx,
+    );
+  }
 }
 
 // The server is the sole source of truth for what a line item costs — a

@@ -13,6 +13,7 @@ import type {
   BalanceFilterDto,
   BalanceExportDto,
   CreateStockAdjustmentDto,
+  EnsureBatchDto,
   RecordMovementDto,
 } from "../dto/inventory.dto";
 import type { InventoryBalanceView, StockAdjustmentView } from "../types/inventory.types";
@@ -128,6 +129,20 @@ export const inventoryService = {
         productId: dto.productId,
         newQuantity,
       });
+
+      // Kept in lockstep with the aggregate balance above, in this same
+      // transaction — see Docs/batch_expiry_tracking_plan.md §2/§7.
+      // Callers of a non-batch-tracked product never pass productBatchId,
+      // so this block simply never runs for them.
+      if (dto.productBatchId) {
+        const currentBatchQuantity = await inventoryRepository.lockBatchById(client, dto.productBatchId);
+        const newBatchQuantity = currentBatchQuantity.add(delta);
+        if (newBatchQuantity.isNegative() && !dto.allowNegative) {
+          throw new AppError("INSUFFICIENT_STOCK", "This movement would take this batch below zero");
+        }
+        await inventoryRepository.updateBatchQuantity(client, dto.productBatchId, newBatchQuantity);
+      }
+
       await inventoryRepository.createTransaction(client, {
         tenantId: dto.tenantId,
         warehouseId: dto.warehouseId,
@@ -137,6 +152,7 @@ export const inventoryService = {
         referenceType: dto.referenceType,
         referenceId: dto.referenceId,
         createdBy: dto.createdBy,
+        productBatchId: dto.productBatchId,
       });
     };
 
@@ -145,6 +161,63 @@ export const inventoryService = {
     } else {
       await prisma.$transaction((client) => run(client));
     }
+  },
+
+  // Cross-module ownership check for a user-supplied batch id — used by
+  // purchase-return.service.ts (§10) so a return line's chosen batch is
+  // validated the same "findXForTenant" way every other cross-entity id
+  // is validated in this codebase, without purchase-return reaching into
+  // inventoryRepository directly (module boundary — see MODULE_GUIDE.md).
+  findBatchForTenant(tenantId: bigint, warehouseId: bigint, productId: bigint, batchId: bigint) {
+    return inventoryRepository.findBatchForTenant(tenantId, warehouseId, productId, batchId);
+  },
+
+  // Only ever called from purchase.service.ts's receive() — a batch is
+  // born (or found again, for a repeat receipt of the same batch number)
+  // here, then immediately fed into recordMovement's productBatchId by
+  // the caller. See Docs/batch_expiry_tracking_plan.md §8.
+  async ensureBatch(dto: EnsureBatchDto, tx: Db): Promise<{ id: bigint }> {
+    const batch = await inventoryRepository.ensureAndLockBatch(
+      tx,
+      dto.tenantId,
+      dto.warehouseId,
+      dto.productId,
+      dto.batchNumber,
+      dto.expiryDate ?? null,
+      dto.manufacturedDate ?? null,
+      dto.costPrice ? new Prisma.Decimal(dto.costPrice) : null,
+    );
+    return { id: batch.id };
+  },
+
+  // FEFO (first-expiry-first-out) pick for a batch-tracked product —
+  // locks every candidate batch together (so two concurrent sales can't
+  // both read the same pre-lock snapshot), then draws soonest-expiring
+  // first until quantityNeeded is covered. Throws the same
+  // INSUFFICIENT_STOCK a non-batch-tracked product's plain recordMovement
+  // already throws when the aggregate can't cover a sale. Callers apply
+  // each pick via recordMovement's productBatchId, inside the same
+  // transaction this locked under. See
+  // Docs/batch_expiry_tracking_plan.md §7/§9.
+  async resolveFefoBatches(
+    tx: Db,
+    warehouseId: bigint,
+    productId: bigint,
+    quantityNeeded: string,
+  ): Promise<{ productBatchId: bigint; quantity: string }[]> {
+    const candidates = await inventoryRepository.lockBatchesForFefo(tx, warehouseId, productId);
+    let remaining = new Prisma.Decimal(quantityNeeded);
+    const picks: { productBatchId: bigint; quantity: string }[] = [];
+    for (const batch of candidates) {
+      if (remaining.lessThanOrEqualTo(0)) break;
+      const take = Prisma.Decimal.min(batch.quantity, remaining);
+      picks.push({ productBatchId: batch.id, quantity: take.toString() });
+      remaining = remaining.sub(take);
+    }
+    if (remaining.greaterThan(0)) {
+      throw new AppError("INSUFFICIENT_STOCK", "Not enough batch stock available to cover this quantity");
+    }
+    return picks;
   },
 
   async createStockAdjustment(dto: CreateStockAdjustmentDto): Promise<StockAdjustmentView> {
@@ -162,6 +235,26 @@ export const inventoryService = {
           `productId ${item.productId.toString()} does not belong to this tenant`,
         );
       }
+      // A batch-tracked product's write-off/adjustment must target one
+      // exact batch (e.g. clearing expired stock) — see
+      // Docs/batch_expiry_tracking_plan.md §10/§12.
+      if (product.trackBatches) {
+        if (!item.productBatchId) {
+          throw new AppError(
+            "VALIDATION_ERROR",
+            `productId ${item.productId.toString()} tracks batches — productBatchId is required`,
+          );
+        }
+        const batch = await inventoryRepository.findBatchForTenant(
+          dto.tenantId,
+          dto.warehouseId,
+          item.productId,
+          item.productBatchId,
+        );
+        if (!batch) {
+          throw new AppError("VALIDATION_ERROR", "productBatchId does not belong to this product/warehouse");
+        }
+      }
     }
 
     return prisma.$transaction(async (tx) => {
@@ -177,6 +270,7 @@ export const inventoryService = {
           adjustmentId: adjustment.id,
           productId: item.productId,
           quantity: new Prisma.Decimal(item.quantityDelta),
+          productBatchId: item.productBatchId,
         });
 
         await inventoryService.recordMovement(
@@ -189,6 +283,7 @@ export const inventoryService = {
             referenceType: "STOCK_ADJUSTMENT",
             referenceId: adjustment.id,
             createdBy: dto.createdBy,
+            productBatchId: item.productBatchId,
           },
           tx,
         );
@@ -201,6 +296,7 @@ export const inventoryService = {
         items: dto.items.map((item) => ({
           productId: item.productId.toString(),
           quantityDelta: item.quantityDelta,
+          productBatchId: item.productBatchId?.toString() ?? null,
         })),
         createdAt: adjustment.createdAt.toISOString(),
       };

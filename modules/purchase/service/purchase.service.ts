@@ -209,6 +209,9 @@ export const purchaseService = {
     }
 
     const itemsById = new Map(purchase.items.map((item) => [item.id.toString(), item]));
+    // Cached here (pre-transaction) and reused inside it — same product,
+    // looked up once per receive() call rather than once per batch line.
+    const productByItemId = new Map<string, { trackBatches: boolean }>();
     for (const receiveItem of dto.items) {
       const item = itemsById.get(receiveItem.purchaseItemId.toString());
       if (!item) {
@@ -225,28 +228,88 @@ export const purchaseService = {
           `Cannot receive ${receiving.toString()} for product ${item.productId.toString()} — only ${remaining.toString()} remains`,
         );
       }
+
+      // Batch capture — see Docs/batch_expiry_tracking_plan.md §8. A
+      // product's trackBatches flag decides whether this line needs a
+      // batches[] breakdown at all; every other product's receive input
+      // is completely unaffected.
+      const product = await purchaseRepository.findProductForTenant(dto.tenantId, item.productId);
+      if (!product) {
+        throw new AppError("VALIDATION_ERROR", `productId ${item.productId.toString()} does not belong to this tenant`);
+      }
+      productByItemId.set(receiveItem.purchaseItemId.toString(), product);
+      if (product.trackBatches) {
+        if (!receiveItem.batches || receiveItem.batches.length === 0) {
+          throw new AppError(
+            "VALIDATION_ERROR",
+            `productId ${item.productId.toString()} tracks batches — batches[] is required`,
+          );
+        }
+        const batchSum = receiveItem.batches.reduce(
+          (sum, batch) => sum.add(new Prisma.Decimal(batch.quantity)),
+          new Prisma.Decimal(0),
+        );
+        if (!batchSum.equals(receiving)) {
+          throw new AppError(
+            "VALIDATION_ERROR",
+            `batches[] quantities (${batchSum.toString()}) must sum to receivedQuantity (${receiving.toString()}) for productId ${item.productId.toString()}`,
+          );
+        }
+      }
     }
 
     const updated = await prisma.$transaction(async (tx) => {
       for (const receiveItem of dto.items) {
         const item = itemsById.get(receiveItem.purchaseItemId.toString())!;
+        const product = productByItemId.get(receiveItem.purchaseItemId.toString())!;
         const newReceivedQuantity = item.receivedQuantity.add(receiveItem.receivedQuantity);
 
         await purchaseRepository.updateItemReceivedQuantity(tx, item.id, newReceivedQuantity);
 
-        await inventoryService.recordMovement(
-          {
-            tenantId: dto.tenantId,
-            warehouseId: purchase.warehouseId,
-            productId: item.productId,
-            transactionType: "PURCHASE_IN",
-            quantityDelta: receiveItem.receivedQuantity,
-            referenceType: "PURCHASE",
-            referenceId: purchase.id,
-            createdBy: dto.receivedBy,
-          },
-          tx,
-        );
+        if (product.trackBatches && receiveItem.batches) {
+          for (const batch of receiveItem.batches) {
+            const created = await inventoryService.ensureBatch(
+              {
+                tenantId: dto.tenantId,
+                warehouseId: purchase.warehouseId,
+                productId: item.productId,
+                batchNumber: batch.batchNumber,
+                expiryDate: batch.expiryDate,
+                manufacturedDate: batch.manufacturedDate,
+                costPrice: item.price.toString(),
+              },
+              tx,
+            );
+            await inventoryService.recordMovement(
+              {
+                tenantId: dto.tenantId,
+                warehouseId: purchase.warehouseId,
+                productId: item.productId,
+                transactionType: "PURCHASE_IN",
+                quantityDelta: batch.quantity,
+                referenceType: "PURCHASE",
+                referenceId: purchase.id,
+                createdBy: dto.receivedBy,
+                productBatchId: created.id,
+              },
+              tx,
+            );
+          }
+        } else {
+          await inventoryService.recordMovement(
+            {
+              tenantId: dto.tenantId,
+              warehouseId: purchase.warehouseId,
+              productId: item.productId,
+              transactionType: "PURCHASE_IN",
+              quantityDelta: receiveItem.receivedQuantity,
+              referenceType: "PURCHASE",
+              referenceId: purchase.id,
+              createdBy: dto.receivedBy,
+            },
+            tx,
+          );
+        }
       }
 
       const allItems = await purchaseRepository.findItemsForPurchase(tx, purchase.id);

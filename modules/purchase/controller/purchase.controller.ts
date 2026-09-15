@@ -146,6 +146,12 @@ export const purchaseController = {
         items: input.items.map((item) => ({
           purchaseItemId: BigInt(item.purchaseItemId),
           receivedQuantity: item.receivedQuantity,
+          batches: item.batches?.map((batch) => ({
+            batchNumber: batch.batchNumber,
+            expiryDate: batch.expiryDate,
+            manufacturedDate: batch.manufacturedDate,
+            quantity: batch.quantity,
+          })),
         })),
         receivedBy: auth.userId,
         scopedWarehouseId: auth.warehouseId,

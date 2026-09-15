@@ -78,6 +78,7 @@ export const inventoryController = {
         items: input.items.map((item) => ({
           productId: BigInt(item.productId),
           quantityDelta: item.quantityDelta,
+          productBatchId: item.productBatchId ? BigInt(item.productBatchId) : undefined,
         })),
         createdBy: auth.userId,
         scopedWarehouseId: auth.warehouseId,

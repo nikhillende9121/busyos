@@ -11,6 +11,11 @@ export const createPurchaseReturnSchema = z.object({
       z.object({
         purchaseItemId: idString,
         quantity: positiveDecimalString,
+        // Which batch is physically going back to the supplier — required
+        // (checked in the service, which knows the product's trackBatches
+        // flag) when the line's product tracks batches. See
+        // Docs/batch_expiry_tracking_plan.md §10.
+        productBatchId: optionalIdString,
       }),
     )
     .min(1, "at least one item is required"),

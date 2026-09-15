@@ -1,6 +1,7 @@
 export type CreatePurchaseReturnItemDto = {
   purchaseItemId: bigint;
   quantity: string;
+  productBatchId?: bigint;
 };
 
 export type CreatePurchaseReturnDto = {

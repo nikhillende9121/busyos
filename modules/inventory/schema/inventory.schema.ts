@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { idString } from "@/shared/validation/id";
+import { idString, optionalIdString } from "@/shared/validation/id";
 import { paginationQueryFields } from "@/shared/validation/list-query";
 
 const decimalString = z
@@ -38,6 +38,10 @@ export const createStockAdjustmentSchema = z.object({
       z.object({
         productId: idString,
         quantityDelta: decimalString,
+        // Required (checked in the service, which knows the product's
+        // trackBatches flag — the schema layer doesn't) when the product
+        // tracks batches. See Docs/batch_expiry_tracking_plan.md §10/§12.
+        productBatchId: optionalIdString,
       }),
     )
     .min(1, "at least one item is required"),

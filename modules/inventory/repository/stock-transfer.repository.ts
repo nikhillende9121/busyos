@@ -92,4 +92,21 @@ export const stockTransferRepository = {
   findProductForTenant(tenantId: bigint, productId: bigint) {
     return prisma.product.findFirst({ where: { id: productId, tenantId, deletedAt: null } });
   },
+
+  // See Docs/batch_expiry_tracking_plan.md §10 — written at ship() (which
+  // batch(es), how much of each, left the source), read back at receive()
+  // (to recreate/find the same batch identity at the destination) and
+  // cancel() (to credit the source back to the exact batches shipped).
+  // productBatch included so callers don't need a second query for
+  // batchNumber/expiryDate.
+  createItemBatch(tx: Db, data: Prisma.StockTransferItemBatchUncheckedCreateInput) {
+    return tx.stockTransferItemBatch.create({ data });
+  },
+
+  findItemBatches(tx: Db, stockTransferItemId: bigint) {
+    return tx.stockTransferItemBatch.findMany({
+      where: { stockTransferItemId },
+      include: { productBatch: true },
+    });
+  },
 };

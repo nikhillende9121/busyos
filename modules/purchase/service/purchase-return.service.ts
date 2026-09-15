@@ -81,6 +81,25 @@ export const purchaseReturnService = {
           `Cannot return ${returning.toString()} for product ${item.productId.toString()} — only ${remaining.toString()} received and not yet returned`,
         );
       }
+      // Which batch is physically going back — see
+      // Docs/batch_expiry_tracking_plan.md §10.
+      if (item.product?.trackBatches) {
+        if (!returnItem.productBatchId) {
+          throw new AppError(
+            "VALIDATION_ERROR",
+            `productId ${item.productId.toString()} tracks batches — productBatchId is required`,
+          );
+        }
+        const batch = await inventoryService.findBatchForTenant(
+          dto.tenantId,
+          purchase.warehouseId,
+          item.productId,
+          returnItem.productBatchId,
+        );
+        if (!batch) {
+          throw new AppError("VALIDATION_ERROR", "productBatchId does not belong to this product/warehouse");
+        }
+      }
     }
 
     const created = await prisma.$transaction(async (tx) => {
@@ -97,6 +116,7 @@ export const purchaseReturnService = {
           purchaseReturnId: purchaseReturn.id,
           purchaseItemId: item.id,
           quantity: new Prisma.Decimal(returnItem.quantity),
+          productBatchId: returnItem.productBatchId,
         });
 
         await purchaseReturnRepository.updateItemReturnedQuantity(
@@ -115,6 +135,7 @@ export const purchaseReturnService = {
             referenceType: "PURCHASE_RETURN",
             referenceId: purchaseReturn.id,
             createdBy: dto.createdBy,
+            productBatchId: returnItem.productBatchId,
           },
           tx,
         );
@@ -141,6 +162,7 @@ function toPurchaseReturnView(
       purchaseItemId: item.purchaseItemId.toString(),
       productId: item.purchaseItem.productId.toString(),
       quantity: item.quantity.toString(),
+      productBatchId: item.productBatchId?.toString() ?? null,
     })),
     createdAt: purchaseReturn.createdAt.toISOString(),
   };

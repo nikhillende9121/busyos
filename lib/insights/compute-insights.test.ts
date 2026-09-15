@@ -37,7 +37,7 @@ function baseInput(overrides: Partial<DashboardInsightsInput> = {}): DashboardIn
   return {
     sales: [],
     purchases: [],
-    products: { items: [{ id: "p1", sku: "SKU1", barcode: null, name: "Widget", status: "ACTIVE", categoryId: null, brandId: null, unitId: null, taxRateId: null, images: [], createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } },
+    products: { items: [{ id: "p1", sku: "SKU1", barcode: null, name: "Widget", status: "ACTIVE", categoryId: null, brandId: null, unitId: null, taxRateId: null, trackBatches: false, images: [], createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } },
     balances: [],
     customers: [{ id: "c1", name: "Alice", email: null, phone: null, customerGroupId: null, state: null, createdAt: "", updatedAt: "" }],
     suppliers: [{ id: "s1", name: "Acme", email: null, phone: null, state: null, createdAt: "", updatedAt: "" }],
@@ -169,8 +169,8 @@ describe("buildDashboardInsights — breakdowns and top products", () => {
       baseInput({
         products: {
           items: [
-            { id: "p1", sku: "S1", barcode: null, name: "Widget", status: "ACTIVE", categoryId: null, brandId: null, unitId: null, taxRateId: null, images: [], createdAt: "", updatedAt: "" },
-            { id: "p2", sku: "S2", barcode: null, name: "Gadget", status: "ACTIVE", categoryId: null, brandId: null, unitId: null, taxRateId: null, images: [], createdAt: "", updatedAt: "" },
+            { id: "p1", sku: "S1", barcode: null, name: "Widget", status: "ACTIVE", categoryId: null, brandId: null, unitId: null, taxRateId: null, trackBatches: false, images: [], createdAt: "", updatedAt: "" },
+            { id: "p2", sku: "S2", barcode: null, name: "Gadget", status: "ACTIVE", categoryId: null, brandId: null, unitId: null, taxRateId: null, trackBatches: false, images: [], createdAt: "", updatedAt: "" },
           ],
           pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
         },

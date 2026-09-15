@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DataTable, type DataTableColumn } from "@/components/resource/data-table";
 import { DateRangeFilter, type DateRange } from "@/components/resource/date-range-filter";
@@ -204,6 +205,7 @@ export default function ProductsPage() {
             unitId: undefined,
             taxRateId: undefined,
             status: "ACTIVE",
+            trackBatches: false,
           }}
           categoryOptions={categoryOptions}
           brandOptions={brandOptions}
@@ -229,6 +231,7 @@ export default function ProductsPage() {
             unitId: editing.unitId ?? undefined,
             taxRateId: editing.taxRateId ?? undefined,
             status: editing.status,
+            trackBatches: editing.trackBatches,
           }}
           product={editing}
           categoryOptions={categoryOptions}
@@ -291,6 +294,8 @@ function ProductFormDialog({
   onImagesChanged: () => void;
 }) {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const { hasFeature } = useAuth();
+  const isBatchTrackingEnabled = hasFeature("BATCH_TRACKING");
   // Cast: zodResolver's generic doesn't forward cleanly through a
   // schema-agnostic FieldValues form (same friction noted previously when
   // this page used ResourceFormDialog).
@@ -410,6 +415,25 @@ function ProductFormDialog({
           </div>
 
           <SelectField label="Status" name="status" control={form.control} options={STATUS_OPTIONS} placeholder="Active" />
+
+          {isBatchTrackingEnabled && (
+            <Controller
+              control={form.control}
+              name="trackBatches"
+              render={({ field }) => (
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="trackBatches"
+                    checked={Boolean(field.value)}
+                    onCheckedChange={field.onChange}
+                  />
+                  <Label htmlFor="trackBatches" className="font-normal">
+                    Track batch numbers &amp; expiry dates for this product
+                  </Label>
+                </div>
+              )}
+            />
+          )}
 
           <div className="space-y-1.5">
             <Label>Images</Label>

@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -55,6 +55,7 @@ export default function PurchaseDetailPage() {
     const product = products?.items.find((p) => p.id === productId);
     return product ? `${product.sku} — ${product.name}` : productId;
   };
+  const productTracksBatches = (productId: string) => products?.items.find((p) => p.id === productId)?.trackBatches ?? false;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.detail("purchases", id) });
@@ -223,6 +224,7 @@ export default function PurchaseDetailPage() {
           onOpenChange={setReceiveOpen}
           purchase={purchase}
           productLabel={productLabel}
+          productTracksBatches={productTracksBatches}
           onReceived={invalidate}
         />
       )}
@@ -273,17 +275,25 @@ function PurchaseTotals({ purchase }: { purchase: PurchaseView }) {
 // and per-line remaining-quantity check). Purpose-built rather than reusing
 // LineItemsField, since the product/line set here is fixed by the existing
 // purchase, not user-added.
+type BatchRow = { batchNumber: string; expiryDate: string; quantity: string };
+
+// Batch-tracked products need a batch-number/expiry/quantity breakdown per
+// line instead of a single quantity — see
+// Docs/batch_expiry_tracking_plan.md §8/§12. A non-tracked product's line
+// is completely unaffected (still just one quantity field).
 function ReceiveDialog({
   open,
   onOpenChange,
   purchase,
   productLabel,
+  productTracksBatches,
   onReceived,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   purchase: PurchaseView;
   productLabel: (productId: string) => string;
+  productTracksBatches: (productId: string) => boolean;
   onReceived: () => void;
 }) {
   const outstandingItems = purchase.items.filter(
@@ -291,17 +301,32 @@ function ReceiveDialog({
   );
 
   const form = useForm<Record<string, string>>({
-    defaultValues: Object.fromEntries(outstandingItems.map((item) => [item.id, ""])),
+    defaultValues: Object.fromEntries(
+      outstandingItems.filter((item) => !productTracksBatches(item.productId)).map((item) => [item.id, ""]),
+    ),
   });
+  const [batchesByItemId, setBatchesByItemId] = useState<Record<string, BatchRow[]>>({});
 
   useEffect(() => {
-    form.reset(Object.fromEntries(outstandingItems.map((item) => [item.id, ""])));
+    form.reset(
+      Object.fromEntries(
+        outstandingItems.filter((item) => !productTracksBatches(item.productId)).map((item) => [item.id, ""]),
+      ),
+    );
+    setBatchesByItemId(
+      Object.fromEntries(
+        outstandingItems
+          .filter((item) => productTracksBatches(item.productId))
+          .map((item) => [item.id, [{ batchNumber: "", expiryDate: "", quantity: "" }]]),
+      ),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const receiveMutation = useMutation({
-    mutationFn: (items: { purchaseItemId: string; receivedQuantity: string }[]) =>
-      apiClient.post<PurchaseView>(`/purchases/${purchase.id}/receive`, { items }),
+    mutationFn: (
+      items: { purchaseItemId: string; receivedQuantity: string; batches?: { batchNumber: string; expiryDate?: string; quantity: string }[] }[],
+    ) => apiClient.post<PurchaseView>(`/purchases/${purchase.id}/receive`, { items }),
     onSuccess: () => {
       onReceived();
       toast.success("Purchase received");
@@ -309,11 +334,47 @@ function ReceiveDialog({
     },
   });
 
+  const updateBatchRow = (itemId: string, index: number, patch: Partial<BatchRow>) => {
+    setBatchesByItemId((current) => ({
+      ...current,
+      [itemId]: current[itemId].map((row, i) => (i === index ? { ...row, ...patch } : row)),
+    }));
+  };
+  const addBatchRow = (itemId: string) => {
+    setBatchesByItemId((current) => ({
+      ...current,
+      [itemId]: [...current[itemId], { batchNumber: "", expiryDate: "", quantity: "" }],
+    }));
+  };
+  const removeBatchRow = (itemId: string, index: number) => {
+    setBatchesByItemId((current) => ({
+      ...current,
+      [itemId]: current[itemId].filter((_, i) => i !== index),
+    }));
+  };
+
   const onSubmit = async (values: Record<string, string>) => {
-    const items = Object.entries(values)
+    const plainItems = Object.entries(values)
       .filter(([, quantity]) => quantity && Number(quantity) > 0)
       .map(([purchaseItemId, receivedQuantity]) => ({ purchaseItemId, receivedQuantity }));
 
+    const batchItems = [];
+    for (const [itemId, rows] of Object.entries(batchesByItemId)) {
+      const validRows = rows.filter((row) => row.batchNumber.trim() && Number(row.quantity) > 0);
+      if (validRows.length === 0) continue;
+      const receivedQuantity = validRows.reduce((sum, row) => sum + Number(row.quantity), 0).toString();
+      batchItems.push({
+        purchaseItemId: itemId,
+        receivedQuantity,
+        batches: validRows.map((row) => ({
+          batchNumber: row.batchNumber.trim(),
+          expiryDate: row.expiryDate || undefined,
+          quantity: row.quantity,
+        })),
+      });
+    }
+
+    const items = [...plainItems, ...batchItems];
     if (items.length === 0) {
       toast.error("Enter a quantity for at least one line.");
       return;
@@ -328,21 +389,72 @@ function ReceiveDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Receive stock</DialogTitle>
         </DialogHeader>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="max-h-[70vh] space-y-4 overflow-y-auto">
           <div className="space-y-3">
             {outstandingItems.map((item) => {
               const remaining = (Number(item.quantity) - Number(item.receivedQuantity)).toString();
-              return (
-                <div key={item.id} className="flex items-center justify-between gap-3 rounded-md border p-2">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{productLabel(item.productId)}</p>
-                    <p className="text-xs text-muted-foreground">{remaining} remaining</p>
+              if (!productTracksBatches(item.productId)) {
+                return (
+                  <div key={item.id} className="flex items-center justify-between gap-3 rounded-md border p-2">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{productLabel(item.productId)}</p>
+                      <p className="text-xs text-muted-foreground">{remaining} remaining</p>
+                    </div>
+                    <Input className="w-28" placeholder="0" {...form.register(item.id)} />
                   </div>
-                  <Input className="w-28" placeholder="0" {...form.register(item.id)} />
+                );
+              }
+
+              const rows = batchesByItemId[item.id] ?? [];
+              const total = rows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+              return (
+                <div key={item.id} className="space-y-2 rounded-md border p-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">{productLabel(item.productId)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {remaining} remaining · {total} entered
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    {rows.map((row, index) => (
+                      <div key={index} className="flex items-center gap-1.5">
+                        <Input
+                          className="flex-1"
+                          placeholder="Batch number"
+                          value={row.batchNumber}
+                          onChange={(e) => updateBatchRow(item.id, index, { batchNumber: e.target.value })}
+                        />
+                        <Input
+                          className="w-36"
+                          type="date"
+                          value={row.expiryDate}
+                          onChange={(e) => updateBatchRow(item.id, index, { expiryDate: e.target.value })}
+                        />
+                        <Input
+                          className="w-20"
+                          placeholder="Qty"
+                          value={row.quantity}
+                          onChange={(e) => updateBatchRow(item.id, index, { quantity: e.target.value })}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => removeBatchRow(item.id, index)}
+                          disabled={rows.length === 1}
+                        >
+                          <X className="size-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button type="button" variant="outline" size="sm" onClick={() => addBatchRow(item.id)}>
+                      <Plus className="size-3.5" /> Add batch
+                    </Button>
+                  </div>
                 </div>
               );
             })}

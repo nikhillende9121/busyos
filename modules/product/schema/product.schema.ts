@@ -16,6 +16,10 @@ export const createProductSchema = z.object({
   // TenantSetting.defaultTaxRateId when unset.
   taxRateId: optionalIdString,
   status: productStatusSchema.optional(),
+  // Opt-in — see Docs/batch_expiry_tracking_plan.md. false (the default)
+  // means this product's stock movements are entirely unaffected by the
+  // batch/expiry model.
+  trackBatches: z.boolean().optional(),
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 

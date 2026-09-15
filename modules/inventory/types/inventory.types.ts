@@ -26,6 +26,23 @@ export type StockAdjustmentView = {
   items: {
     productId: string;
     quantityDelta: string;
+    productBatchId: string | null;
   }[];
   createdAt: string;
+};
+
+// See Docs/batch_expiry_tracking_plan.md §4.2. Only ever populated for a
+// product with trackBatches = true.
+export type ProductBatchView = {
+  id: string;
+  warehouseId: string;
+  productId: string;
+  productName: string | null;
+  batchNumber: string;
+  expiryDate: string | null;
+  manufacturedDate: string | null;
+  quantity: string;
+  daysUntilExpiry: number | null;
+  createdAt: string;
+  updatedAt: string;
 };

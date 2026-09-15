@@ -48,10 +48,12 @@ export const purchaseReturnRepository = {
     });
   },
 
+  // items.product included for trackBatches — see
+  // Docs/batch_expiry_tracking_plan.md §10.
   findPurchaseForTenant(tenantId: bigint, purchaseId: bigint) {
     return prisma.purchase.findFirst({
       where: { id: purchaseId, tenantId, deletedAt: null },
-      include: { items: true },
+      include: { items: { include: { product: true } } },
     });
   },
 

@@ -30,6 +30,20 @@ export const receivePurchaseSchema = z.object({
       z.object({
         purchaseItemId: idString,
         receivedQuantity: positiveDecimalString,
+        // Required (checked in the service, which knows the product's
+        // trackBatches flag — the schema layer doesn't) when the line's
+        // product tracks batches; sum of quantities must equal
+        // receivedQuantity. See Docs/batch_expiry_tracking_plan.md §8.
+        batches: z
+          .array(
+            z.object({
+              batchNumber: z.string().min(1).max(100),
+              expiryDate: z.coerce.date().optional(),
+              manufacturedDate: z.coerce.date().optional(),
+              quantity: positiveDecimalString,
+            }),
+          )
+          .optional(),
       }),
     )
     .min(1, "at least one item is required"),

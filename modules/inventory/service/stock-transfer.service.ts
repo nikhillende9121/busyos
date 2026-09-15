@@ -281,18 +281,51 @@ export const stockTransferService = {
         // too — nothing actually moved, so skip writing a no-op ledger
         // entry rather than recording a zero-quantity TRANSFER_OUT.
         if (!shippedQuantity.isZero()) {
-          await inventoryService.recordMovement(
-            {
-              tenantId: dto.tenantId,
-              warehouseId: fromWarehouseId,
-              productId: item.productId,
-              transactionType: "TRANSFER_OUT",
-              quantityDelta: `-${shippedQuantity.toString()}`,
-              referenceType: "STOCK_TRANSFER",
-              referenceId: transfer.id,
-            },
-            tx,
-          );
+          if (item.product?.trackBatches) {
+            // FEFO out of the source warehouse — batch identity (number +
+            // expiry) is recorded per pick so receive() can recreate the
+            // same batch at the destination. See
+            // Docs/batch_expiry_tracking_plan.md §10.
+            const picks = await inventoryService.resolveFefoBatches(
+              tx,
+              fromWarehouseId,
+              item.productId,
+              shippedQuantity.toString(),
+            );
+            for (const pick of picks) {
+              await inventoryService.recordMovement(
+                {
+                  tenantId: dto.tenantId,
+                  warehouseId: fromWarehouseId,
+                  productId: item.productId,
+                  transactionType: "TRANSFER_OUT",
+                  quantityDelta: `-${pick.quantity}`,
+                  referenceType: "STOCK_TRANSFER",
+                  referenceId: transfer.id,
+                  productBatchId: pick.productBatchId,
+                },
+                tx,
+              );
+              await stockTransferRepository.createItemBatch(tx, {
+                stockTransferItemId: item.id,
+                productBatchId: pick.productBatchId,
+                quantity: new Prisma.Decimal(pick.quantity),
+              });
+            }
+          } else {
+            await inventoryService.recordMovement(
+              {
+                tenantId: dto.tenantId,
+                warehouseId: fromWarehouseId,
+                productId: item.productId,
+                transactionType: "TRANSFER_OUT",
+                quantityDelta: `-${shippedQuantity.toString()}`,
+                referenceType: "STOCK_TRANSFER",
+                referenceId: transfer.id,
+              },
+              tx,
+            );
+          }
         }
         await stockTransferRepository.updateItemStage(tx, item.id, { shippedQuantity });
       }
@@ -345,18 +378,59 @@ export const stockTransferService = {
         // Same reasoning as ship() — a line that shipped at 0 receives at
         // 0 too; skip the no-op ledger entry.
         if (!receivedQuantity.isZero()) {
-          await inventoryService.recordMovement(
-            {
-              tenantId: dto.tenantId,
-              warehouseId: transfer.toWarehouseId,
-              productId: item.productId,
-              transactionType: "TRANSFER_IN",
-              quantityDelta: receivedQuantity.toString(),
-              referenceType: "STOCK_TRANSFER",
-              referenceId: transfer.id,
-            },
-            tx,
-          );
+          if (item.product?.trackBatches) {
+            // Recreate/find the exact batch(es) ship() drew from, at the
+            // destination warehouse — batch identity (number + expiry)
+            // travels with the physical stock, prorated if this receive
+            // covers less than the full shipped quantity (partial
+            // receipt). See Docs/batch_expiry_tracking_plan.md §10.
+            const shippedBatches = await stockTransferRepository.findItemBatches(tx, item.id);
+            const totalShipped = shippedBatches.reduce((sum, b) => sum.add(b.quantity), new Prisma.Decimal(0));
+            for (const shippedBatch of shippedBatches) {
+              const share = totalShipped.isZero()
+                ? new Prisma.Decimal(0)
+                : receivedQuantity.mul(shippedBatch.quantity).div(totalShipped);
+              if (share.isZero()) continue;
+              const destinationBatch = await inventoryService.ensureBatch(
+                {
+                  tenantId: dto.tenantId,
+                  warehouseId: transfer.toWarehouseId,
+                  productId: item.productId,
+                  batchNumber: shippedBatch.productBatch.batchNumber,
+                  expiryDate: shippedBatch.productBatch.expiryDate ?? undefined,
+                  manufacturedDate: shippedBatch.productBatch.manufacturedDate ?? undefined,
+                  costPrice: shippedBatch.productBatch.costPrice?.toString(),
+                },
+                tx,
+              );
+              await inventoryService.recordMovement(
+                {
+                  tenantId: dto.tenantId,
+                  warehouseId: transfer.toWarehouseId,
+                  productId: item.productId,
+                  transactionType: "TRANSFER_IN",
+                  quantityDelta: share.toString(),
+                  referenceType: "STOCK_TRANSFER",
+                  referenceId: transfer.id,
+                  productBatchId: destinationBatch.id,
+                },
+                tx,
+              );
+            }
+          } else {
+            await inventoryService.recordMovement(
+              {
+                tenantId: dto.tenantId,
+                warehouseId: transfer.toWarehouseId,
+                productId: item.productId,
+                transactionType: "TRANSFER_IN",
+                quantityDelta: receivedQuantity.toString(),
+                referenceType: "STOCK_TRANSFER",
+                referenceId: transfer.id,
+              },
+              tx,
+            );
+          }
         }
         await stockTransferRepository.updateItemStage(tx, item.id, { receivedQuantity });
       }
@@ -412,18 +486,42 @@ export const stockTransferService = {
     const fromWarehouseId = transfer.fromWarehouseId!;
     const updated = await prisma.$transaction(async (tx) => {
       for (const item of transfer.items) {
-        await inventoryService.recordMovement(
-          {
-            tenantId,
-            warehouseId: fromWarehouseId,
-            productId: item.productId,
-            transactionType: "TRANSFER_IN",
-            quantityDelta: item.shippedQuantity!.toString(),
-            referenceType: "STOCK_TRANSFER",
-            referenceId: transfer.id,
-          },
-          tx,
-        );
+        if (item.product?.trackBatches) {
+          // Credit back the exact source batch(es) ship() drew from —
+          // never a fresh FEFO pick, which could credit the wrong batch
+          // entirely. Same reversal principle as
+          // sale.service.ts's reverseSaleLine. See
+          // Docs/batch_expiry_tracking_plan.md §10.
+          const shippedBatches = await stockTransferRepository.findItemBatches(tx, item.id);
+          for (const shippedBatch of shippedBatches) {
+            await inventoryService.recordMovement(
+              {
+                tenantId,
+                warehouseId: fromWarehouseId,
+                productId: item.productId,
+                transactionType: "TRANSFER_IN",
+                quantityDelta: shippedBatch.quantity.toString(),
+                referenceType: "STOCK_TRANSFER",
+                referenceId: transfer.id,
+                productBatchId: shippedBatch.productBatchId,
+              },
+              tx,
+            );
+          }
+        } else {
+          await inventoryService.recordMovement(
+            {
+              tenantId,
+              warehouseId: fromWarehouseId,
+              productId: item.productId,
+              transactionType: "TRANSFER_IN",
+              quantityDelta: item.shippedQuantity!.toString(),
+              referenceType: "STOCK_TRANSFER",
+              referenceId: transfer.id,
+            },
+            tx,
+          );
+        }
       }
       const newTransfer = await stockTransferRepository.updateStatus(tx, transfer.id, "CANCELLED");
       return { ...newTransfer, items: transfer.items };

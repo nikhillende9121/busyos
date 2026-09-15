@@ -19,9 +19,19 @@ export type CreatePurchaseDto = {
   scopedWarehouseId?: bigint | null;
 };
 
+export type ReceivePurchaseBatchDto = {
+  batchNumber: string;
+  expiryDate?: Date;
+  manufacturedDate?: Date;
+  quantity: string;
+};
+
 export type ReceivePurchaseItemDto = {
   purchaseItemId: bigint;
   receivedQuantity: string;
+  // See Docs/batch_expiry_tracking_plan.md §8 — required by the service
+  // when the line's product tracks batches, otherwise omitted/ignored.
+  batches?: ReceivePurchaseBatchDto[];
 };
 
 export type ReceivePurchaseDto = {

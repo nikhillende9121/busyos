@@ -25,7 +25,29 @@ export const LOW_STOCK_THRESHOLD = 10;
 // price+tax) — tax collected on behalf of the government isn't revenue;
 // see lib/insights/compute-gst-insights.ts for tax collected/paid/net
 // payable, computed separately from this file.
-const REVENUE_SALE_STATUSES = new Set(["CONFIRMED", "PROCESSING", "PACKED", "SHIPPED", "DELIVERED", "COMPLETED"]);
+// Every SaleStatus (prisma/schema.prisma), in lifecycle order rather than
+// the schema's own declaration order (which lists PENDING_PAYMENT before
+// DRAFT) — used to zero-fill salesByStatus below so the "Sales by status"
+// chart always shows every status as its own column, not just whichever
+// ones happen to have at least one sale yet.
+const ALL_SALE_STATUSES = [
+  "DRAFT",
+  "PENDING_PAYMENT",
+  "CONFIRMED",
+  "PROCESSING",
+  "PACKED",
+  "PARTIALLY_SHIPPED",
+  "SHIPPED",
+  "DELIVERED",
+  "COMPLETED",
+  "CANCELLED",
+];
+
+// Exported for lib/insights/compute-sales-trend.ts to reuse — the daily
+// /monthly/yearly trend chart must count "revenue" exactly the same way
+// this file's own totalRevenue KPI does, never a second, possibly
+// -diverging definition.
+export const REVENUE_SALE_STATUSES = new Set(["CONFIRMED", "PROCESSING", "PACKED", "SHIPPED", "DELIVERED", "COMPLETED"]);
 const CLOSED_SALE_STATUSES = new Set(["DELIVERED", "COMPLETED", "CANCELLED"]);
 const PENDING_PURCHASE_STATUSES = new Set(["DRAFT", "ORDERED", "PARTIALLY_RECEIVED"]);
 
@@ -82,7 +104,9 @@ export type DashboardInsights = {
   lowStockLines: LowStockLine[];
 };
 
-function saleNetAmount(sale: SaleView): number {
+// Exported for compute-sales-trend.ts — same reasoning as
+// REVENUE_SALE_STATUSES above.
+export function saleNetAmount(sale: SaleView): number {
   const gross = sale.items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
   const discountTotal = sale.discounts.reduce((sum, discount) => sum + Number(discount.amount), 0);
   return gross - discountTotal;
@@ -131,7 +155,10 @@ export function buildDashboardInsights(input: DashboardInsightsInput): Dashboard
     statusCounts.set(sale.status, (statusCounts.get(sale.status) ?? 0) + 1);
     channelCounts.set(sale.channel, (channelCounts.get(sale.channel) ?? 0) + 1);
   }
-  const salesByStatus: StatusCount[] = Array.from(statusCounts, ([status, count]) => ({ status, count }));
+  const salesByStatus: StatusCount[] = ALL_SALE_STATUSES.map((status) => ({
+    status,
+    count: statusCounts.get(status) ?? 0,
+  }));
   const salesByChannel: ChannelCount[] = Array.from(channelCounts, ([channel, count]) => ({ channel, count }));
 
   // Gross per-line revenue, not net-of-discount: scoped discounts are

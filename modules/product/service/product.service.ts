@@ -92,6 +92,7 @@ export const productService = {
         unitId: dto.unitId,
         taxRateId: dto.taxRateId,
         status: dto.status,
+        trackBatches: dto.trackBatches,
         createdBy: dto.createdBy,
       });
       const view = toProductView(product);
@@ -118,6 +119,7 @@ export const productService = {
         unitId: dto.unitId,
         taxRateId: dto.taxRateId,
         status: dto.status,
+        trackBatches: dto.trackBatches,
         updatedBy: dto.updatedBy,
       });
       const view = toProductView(product);
@@ -198,6 +200,7 @@ function toProductView(product: Product & { images?: ProductImage[] }): ProductV
     brandId: product.brandId?.toString() ?? null,
     unitId: product.unitId?.toString() ?? null,
     taxRateId: product.taxRateId?.toString() ?? null,
+    trackBatches: product.trackBatches,
     images: (product.images ?? []).map(toProductImageView),
     createdAt: product.createdAt.toISOString(),
     updatedAt: product.updatedAt.toISOString(),

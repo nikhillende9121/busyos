@@ -49,11 +49,14 @@ export const saleReturnRepository = {
   },
 
   // discounts included so the service can prorate a discounted refund — see
-  // Docs/business-rules/sale-return.md -> Discount-Aware Refunds.
+  // Docs/business-rules/sale-return.md -> Discount-Aware Refunds. items.product
+  // included for trackBatches, so the service knows whether a line's
+  // credit needs to go through the batch-proration path — see
+  // Docs/batch_expiry_tracking_plan.md §10.
   findSaleForTenant(tenantId: bigint, saleId: bigint) {
     return prisma.sale.findFirst({
       where: { id: saleId, tenantId, deletedAt: null },
-      include: { items: true, discounts: true },
+      include: { items: { include: { product: true } }, discounts: true },
     });
   },
 

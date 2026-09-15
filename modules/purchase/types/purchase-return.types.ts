@@ -3,6 +3,7 @@ export type PurchaseReturnItemView = {
   purchaseItemId: string;
   productId: string;
   quantity: string;
+  productBatchId: string | null;
 };
 
 export type PurchaseReturnView = {

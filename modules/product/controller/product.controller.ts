@@ -98,6 +98,7 @@ export const productController = {
         unitId: input.unitId ? BigInt(input.unitId) : undefined,
         taxRateId: input.taxRateId ? BigInt(input.taxRateId) : undefined,
         status: input.status,
+        trackBatches: input.trackBatches,
         createdBy: auth.userId,
       });
       return successResponse(product, "Product created", 201);
@@ -122,6 +123,7 @@ export const productController = {
         unitId: input.unitId ? BigInt(input.unitId) : undefined,
         taxRateId: input.taxRateId ? BigInt(input.taxRateId) : undefined,
         status: input.status,
+        trackBatches: input.trackBatches,
         updatedBy: auth.userId,
       });
       return successResponse(product, "Product updated");

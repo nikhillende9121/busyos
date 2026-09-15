@@ -10,6 +10,7 @@ export type CreateProductDto = {
   unitId?: bigint;
   taxRateId?: bigint;
   status?: ProductStatus;
+  trackBatches?: boolean;
   createdBy?: bigint;
 };
 
@@ -24,6 +25,7 @@ export type UpdateProductDto = {
   unitId?: bigint;
   taxRateId?: bigint;
   status?: ProductStatus;
+  trackBatches?: boolean;
   updatedBy?: bigint;
 };
 

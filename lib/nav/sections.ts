@@ -39,6 +39,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Balance", href: "/inventory/balance", permission: "INVENTORY.VIEW", feature: "INVENTORY" },
       { label: "Adjustments", href: "/inventory/adjustments", permission: "INVENTORY.ADJUST", feature: "INVENTORY" },
+      { label: "Batches", href: "/inventory/batches", permission: "INVENTORY.VIEW", feature: "BATCH_TRACKING" },
       { label: "Stock Transfers", href: "/stock-transfers", permission: "STOCK_TRANSFER.VIEW", feature: "STOCK_TRANSFER" },
     ],
   },

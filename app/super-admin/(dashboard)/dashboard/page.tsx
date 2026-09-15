@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TrendingDown, TrendingUp } from "lucide-react";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from "recharts";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,15 +18,11 @@ const featureChartConfig = { count: { label: "Tenants enabled", color: "var(--ch
 function KpiCard({ label, value, caption }: { label: string; value: string; caption?: string }) {
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader className="gap-1.5">
         <CardDescription>{label}</CardDescription>
         <CardTitle className="text-2xl">{value}</CardTitle>
+        {caption && <p className="text-xs text-muted-foreground">{caption}</p>}
       </CardHeader>
-      {caption && (
-        <CardContent className="pt-0">
-          <p className="text-xs text-muted-foreground">{caption}</p>
-        </CardContent>
-      )}
     </Card>
   );
 }
@@ -33,6 +30,22 @@ function KpiCard({ label, value, caption }: { label: string; value: string; capt
 function monthLabel(month: string): string {
   const [year, monthNum] = month.split("-").map(Number);
   return new Date(year, monthNum - 1, 1).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+}
+
+// First-point-vs-last-point of the visible window — same footer style as
+// app/(dashboard)/dashboard/page.tsx's Sales Trend chart, so both
+// dashboards' time-series charts read consistently.
+function computeTrend(points: { count: number }[]): { percent: number; direction: "up" | "down" | "flat" } {
+  if (points.length < 2) return { percent: 0, direction: "flat" };
+  const first = points[0].count;
+  const last = points[points.length - 1].count;
+  if (first === 0) {
+    if (last === 0) return { percent: 0, direction: "flat" };
+    return { percent: 100, direction: "up" };
+  }
+  const percent = ((last - first) / first) * 100;
+  if (percent === 0) return { percent: 0, direction: "flat" };
+  return { percent: Math.abs(percent), direction: percent > 0 ? "up" : "down" };
 }
 
 export default function SuperAdminDashboardPage() {
@@ -43,9 +56,9 @@ export default function SuperAdminDashboardPage() {
 
   if (isLoading || !data) {
     return (
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
         {Array.from({ length: 4 }).map((_, index) => (
-          <Skeleton key={index} className="h-24 w-full" />
+          <Skeleton key={index} className="h-28 w-full" />
         ))}
       </div>
     );
@@ -61,7 +74,7 @@ export default function SuperAdminDashboardPage() {
         <p className="text-muted-foreground">Platform-wide tenant, contract, and adoption overview.</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
         <KpiCard label="Total tenants" value={String(data.totalTenants)} caption={statusCaption || undefined} />
         <KpiCard
           label="Active contracts"
@@ -88,15 +101,42 @@ export default function SuperAdminDashboardPage() {
           </CardHeader>
           <CardContent>
             <ChartContainer config={growthChartConfig} className="h-64 w-full">
-              <BarChart data={growthData}>
+              <AreaChart data={growthData} margin={{ left: 12, right: 12 }}>
+                <defs>
+                  <linearGradient id="fillTenantGrowth" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--color-count)" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="var(--color-count)" stopOpacity={0.1} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid vertical={false} />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} />
                 <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="count" fill="var(--color-count)" radius={4} />
-              </BarChart>
+                <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
+                <Area
+                  dataKey="count"
+                  type="natural"
+                  fill="url(#fillTenantGrowth)"
+                  stroke="var(--color-count)"
+                  strokeWidth={2}
+                />
+              </AreaChart>
             </ChartContainer>
           </CardContent>
+          <CardFooter className="flex-col items-start gap-1.5 text-sm">
+            {(() => {
+              const trend = computeTrend(growthData);
+              if (trend.direction === "flat") {
+                return <p className="text-muted-foreground">Flat over the last 12 months</p>;
+              }
+              const Icon = trend.direction === "up" ? TrendingUp : TrendingDown;
+              return (
+                <div className="flex items-center gap-2 font-medium leading-none">
+                  Trending {trend.direction} by {trend.percent.toFixed(1)}% <Icon className="size-4" />
+                </div>
+              );
+            })()}
+            <p className="leading-none text-muted-foreground">New tenants signed up, last 12 months</p>
+          </CardFooter>
         </Card>
 
         <Card>
@@ -109,7 +149,7 @@ export default function SuperAdminDashboardPage() {
               <p className="text-sm text-muted-foreground">No active contracts.</p>
             ) : (
               <ChartContainer config={planChartConfig} className="h-64 w-full">
-                <BarChart data={data.planDistribution}>
+                <BarChart data={data.planDistribution} margin={{ top: 20 }}>
                   <CartesianGrid vertical={false} />
                   <XAxis
                     dataKey="planName"
@@ -122,8 +162,10 @@ export default function SuperAdminDashboardPage() {
                     height={60}
                   />
                   <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" fill="var(--color-count)" radius={4} />
+                  <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" fill="var(--color-count)" radius={8}>
+                    <LabelList position="top" offset={8} className="fill-foreground" fontSize={11} />
+                  </Bar>
                 </BarChart>
               </ChartContainer>
             )}
@@ -141,12 +183,14 @@ export default function SuperAdminDashboardPage() {
             <p className="text-sm text-muted-foreground">No features in the catalog yet.</p>
           ) : (
             <ChartContainer config={featureChartConfig} className="h-[440px] w-full">
-              <BarChart data={data.featureAdoption} layout="vertical" margin={{ left: 24 }}>
+              <BarChart data={data.featureAdoption} layout="vertical" margin={{ left: 24, right: 32 }}>
                 <CartesianGrid horizontal={false} />
-                <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
+                <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} hide />
                 <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} width={140} fontSize={11} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="count" fill="var(--color-count)" radius={4} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                <Bar dataKey="count" fill="var(--color-count)" radius={4}>
+                  <LabelList dataKey="count" position="right" offset={8} className="fill-foreground" fontSize={11} />
+                </Bar>
               </BarChart>
             </ChartContainer>
           )}

@@ -85,6 +85,7 @@ export const purchaseReturnController = {
         items: input.items.map((item) => ({
           purchaseItemId: BigInt(item.purchaseItemId),
           quantity: item.quantity,
+          productBatchId: item.productBatchId ? BigInt(item.productBatchId) : undefined,
         })),
         createdBy: auth.userId,
         scopedWarehouseId: auth.warehouseId,

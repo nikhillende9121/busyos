@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import type { SaleReturn, SaleReturnItem, SaleItem, SaleDiscount, SaleStatus } from "@prisma/client";
+import type { SaleReturn, SaleReturnItem, SaleItem, SaleDiscount, SaleStatus, Product } from "@prisma/client";
 import { prisma } from "@/shared/database/prisma";
 import { saleReturnRepository } from "../repository/sale-return.repository";
 import { saleRepository } from "../repository/sale.repository";
@@ -102,19 +102,47 @@ export const saleReturnService = {
           line.item.returnedQuantity.add(line.quantity),
         );
 
-        await inventoryService.recordMovement(
-          {
-            tenantId: dto.tenantId,
-            warehouseId: sale.warehouseId,
-            productId: line.item.productId,
-            transactionType: "SALE_RETURN_IN",
-            quantityDelta: line.quantity.toString(),
-            referenceType: "SALE_RETURN",
-            referenceId: saleReturn.id,
-            createdBy: dto.createdBy,
-          },
-          tx,
-        );
+        // A batch-tracked product's line credits back the exact batch(es)
+        // it was originally fulfilled from, prorated by each batch's
+        // share of the line's total quantity — same proration shape as
+        // computeProratedRefundUnitPrice's discount math above, applied
+        // to batches instead of money. See
+        // Docs/batch_expiry_tracking_plan.md §10.
+        if (line.item.product?.trackBatches) {
+          const saleItemBatches = await saleRepository.findItemBatches(tx, line.item.id);
+          for (const batch of saleItemBatches) {
+            const share = line.quantity.mul(batch.quantity).div(line.item.quantity);
+            if (share.isZero()) continue;
+            await inventoryService.recordMovement(
+              {
+                tenantId: dto.tenantId,
+                warehouseId: sale.warehouseId,
+                productId: line.item.productId,
+                transactionType: "SALE_RETURN_IN",
+                quantityDelta: share.toString(),
+                referenceType: "SALE_RETURN",
+                referenceId: saleReturn.id,
+                createdBy: dto.createdBy,
+                productBatchId: batch.productBatchId,
+              },
+              tx,
+            );
+          }
+        } else {
+          await inventoryService.recordMovement(
+            {
+              tenantId: dto.tenantId,
+              warehouseId: sale.warehouseId,
+              productId: line.item.productId,
+              transactionType: "SALE_RETURN_IN",
+              quantityDelta: line.quantity.toString(),
+              referenceType: "SALE_RETURN",
+              referenceId: saleReturn.id,
+              createdBy: dto.createdBy,
+            },
+            tx,
+          );
+        }
 
         items.push({ ...createdItem, saleItem: line.item });
       }
@@ -160,7 +188,11 @@ export const saleReturnService = {
   },
 };
 
-type ResolvedReturnLine = { item: SaleItem; quantity: Prisma.Decimal; refundAmount: Prisma.Decimal };
+type ResolvedReturnLine = {
+  item: SaleItem & { product: Product | null };
+  quantity: Prisma.Decimal;
+  refundAmount: Prisma.Decimal;
+};
 
 // Shared by create() and quote(): finds+authorizes the sale, validates every
 // requested line belongs to it and doesn't exceed what's left returnable,
