@@ -119,8 +119,24 @@ describe("authService.login", () => {
     vi.mocked(authRepository.findActiveUserByEmail).mockResolvedValue(activeUser() as never);
     vi.mocked(getActiveSubscription).mockResolvedValue({ endDate: new Date("2020-01-01") } as never);
 
+    // A distinct code/message here — unlike every branch above, this only
+    // runs after the password has already been verified correct, so it's
+    // safe to be specific (see the comment on this branch in
+    // auth.service.ts).
     await expect(
       authService.login({ email: "user@acme.com", password: TEST_PASSWORD }),
+    ).rejects.toMatchObject({ code: "SUBSCRIPTION_EXPIRED" });
+  });
+
+  it("still rejects a wrong password with the generic message even when the subscription has also expired", async () => {
+    // Wrong-password must never be distinguishable from "correct password,
+    // expired plan" — verified here by checking the wrong-password path
+    // wins even with an expired subscription in play.
+    vi.mocked(authRepository.findActiveUserByEmail).mockResolvedValue(activeUser() as never);
+    vi.mocked(getActiveSubscription).mockResolvedValue({ endDate: new Date("2020-01-01") } as never);
+
+    await expect(
+      authService.login({ email: "user@acme.com", password: "wrong-password" }),
     ).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
   });
 });

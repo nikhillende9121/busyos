@@ -23,6 +23,24 @@ vi.mock("../service/tenant.service", () => ({
   },
 }));
 
+vi.mock("@/modules/notification/service/notification.service", () => ({
+  notificationService: {
+    sendToUsers: vi.fn(),
+  },
+}));
+
+vi.mock("@/modules/notification/repository/notification.repository", () => ({
+  notificationRepository: {
+    existsForSubscriptionThreshold: vi.fn(),
+  },
+}));
+
+vi.mock("@/modules/user/repository/user.repository", () => ({
+  userRepository: {
+    findManyByTenantWithPermission: vi.fn(),
+  },
+}));
+
 // Fully mocked (not vi.importOriginal) — the real module imports
 // shared/database/prisma, which requires live DB_* env vars at import
 // time. isSubscriptionExpired is reimplemented here rather than imported,
@@ -37,6 +55,9 @@ import { superAdminSubscriptionRepository } from "../repository/subscription.rep
 import { superAdminTenantRepository } from "../repository/tenant.repository";
 import { superAdminTenantService } from "../service/tenant.service";
 import { getActiveSubscription } from "@/shared/utils/subscription";
+import { notificationService } from "@/modules/notification/service/notification.service";
+import { notificationRepository } from "@/modules/notification/repository/notification.repository";
+import { userRepository } from "@/modules/user/repository/user.repository";
 import { superAdminSubscriptionService } from "../service/subscription.service";
 
 function contractRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -206,5 +227,105 @@ describe("superAdminSubscriptionService.listAll", () => {
 
     expect(result.map((c) => c.id)).toEqual(["2", "3", "1", "4"]);
     expect(result.find((c) => c.id === "1")?.isCurrentlyActive).toBe(false);
+  });
+});
+
+describe("superAdminSubscriptionService.processExpiryAlerts", () => {
+  const NOW = new Date("2026-06-01T00:00:00.000Z");
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  function daysFromNow(days: number): Date {
+    return new Date(NOW.getTime() + days * DAY_MS);
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(notificationRepository.existsForSubscriptionThreshold).mockResolvedValue(false);
+    vi.mocked(userRepository.findManyByTenantWithPermission).mockResolvedValue([{ id: 9n, name: "Admin" }] as never);
+  });
+
+  it("does nothing for a subscription well outside every threshold window", async () => {
+    vi.mocked(superAdminSubscriptionRepository.findManyAcrossTenants).mockResolvedValue([
+      contractRow({ endDate: daysFromNow(45) }),
+    ] as never);
+
+    const result = await superAdminSubscriptionService.processExpiryAlerts(NOW);
+
+    expect(result.notificationsSent).toBe(0);
+    expect(notificationService.sendToUsers).not.toHaveBeenCalled();
+  });
+
+  it("sends the 30-day alert once a subscription enters that window", async () => {
+    vi.mocked(superAdminSubscriptionRepository.findManyAcrossTenants).mockResolvedValue([
+      contractRow({ tenantId: 5n, endDate: daysFromNow(25) }),
+    ] as never);
+
+    const result = await superAdminSubscriptionService.processExpiryAlerts(NOW);
+
+    expect(result.notificationsSent).toBe(1);
+    expect(notificationService.sendToUsers).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 5n, userIds: [9n], type: "SUBSCRIPTION_EXPIRING_30D" }),
+    );
+  });
+
+  it("skips a threshold that already has a notification on record", async () => {
+    vi.mocked(notificationRepository.existsForSubscriptionThreshold).mockImplementation(
+      async (_tenantId, _subId, type) => type === "SUBSCRIPTION_EXPIRING_30D",
+    );
+    vi.mocked(superAdminSubscriptionRepository.findManyAcrossTenants).mockResolvedValue([
+      contractRow({ endDate: daysFromNow(25) }),
+    ] as never);
+
+    await superAdminSubscriptionService.processExpiryAlerts(NOW);
+
+    expect(notificationService.sendToUsers).not.toHaveBeenCalled();
+  });
+
+  it("catches up on every newly-crossed threshold in one run when several are due at once", async () => {
+    vi.mocked(superAdminSubscriptionRepository.findManyAcrossTenants).mockResolvedValue([
+      contractRow({ endDate: daysFromNow(0.5) }),
+    ] as never);
+
+    const result = await superAdminSubscriptionService.processExpiryAlerts(NOW);
+
+    // Within 1 day remaining also satisfies the 30d/7d/1d windows — all
+    // three (plus EXPIRED, which requires <= 0) should fire since none
+    // were sent before.
+    expect(result.notificationsSent).toBe(3);
+    const types = vi.mocked(notificationService.sendToUsers).mock.calls.map(([opts]) => opts.type);
+    expect(types).toEqual(["SUBSCRIPTION_EXPIRING_30D", "SUBSCRIPTION_EXPIRING_7D", "SUBSCRIPTION_EXPIRING_1D"]);
+  });
+
+  it("sends the EXPIRED alert once the end date has passed", async () => {
+    vi.mocked(superAdminSubscriptionRepository.findManyAcrossTenants).mockResolvedValue([
+      contractRow({ endDate: daysFromNow(-2) }),
+    ] as never);
+
+    await superAdminSubscriptionService.processExpiryAlerts(NOW);
+
+    const types = vi.mocked(notificationService.sendToUsers).mock.calls.map(([opts]) => opts.type);
+    expect(types).toContain("SUBSCRIPTION_EXPIRED");
+  });
+
+  it("skips a tenant with no user holding the admin permission, without throwing", async () => {
+    vi.mocked(userRepository.findManyByTenantWithPermission).mockResolvedValue([]);
+    vi.mocked(superAdminSubscriptionRepository.findManyAcrossTenants).mockResolvedValue([
+      contractRow({ endDate: daysFromNow(25) }),
+    ] as never);
+
+    const result = await superAdminSubscriptionService.processExpiryAlerts(NOW);
+
+    expect(result.notificationsSent).toBe(0);
+    expect(notificationService.sendToUsers).not.toHaveBeenCalled();
+  });
+
+  it("ignores a cancelled subscription regardless of its dates", async () => {
+    vi.mocked(superAdminSubscriptionRepository.findManyAcrossTenants).mockResolvedValue([
+      contractRow({ status: "CANCELLED", endDate: daysFromNow(0.5) }),
+    ] as never);
+
+    const result = await superAdminSubscriptionService.processExpiryAlerts(NOW);
+
+    expect(result.notificationsSent).toBe(0);
+    expect(notificationService.sendToUsers).not.toHaveBeenCalled();
   });
 });

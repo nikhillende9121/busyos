@@ -97,9 +97,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3.5">
           <Link href="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-90">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md">
-              <GiShoppingBag className="size-5" />
-            </div>
+            <GiShoppingBag className="size-7 text-blue-600" />
             <span className="font-heading text-lg font-bold tracking-tight text-foreground">RetailX</span>
           </Link>
 

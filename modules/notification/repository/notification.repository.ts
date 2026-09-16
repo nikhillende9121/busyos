@@ -145,4 +145,23 @@ export const notificationRepository = {
       data: { isRead: true, readAt: new Date() },
     });
   },
+
+  // Dedup check for a periodic scan-and-alert job (see
+  // modules/super-admin/service/subscription.service.ts's
+  // processExpiryAlerts) — `type` already encodes which threshold this is
+  // ("SUBSCRIPTION_EXPIRING_30D" etc.), so "has this threshold already
+  // fired for this subscription" is just "does any notification of this
+  // type carrying this subscriptionId in its data exist yet." Matches on
+  // tenantId, not userId, since the same threshold must fire once per
+  // tenant/subscription regardless of which admin(s) got it.
+  async existsForSubscriptionThreshold(tenantId: bigint, subscriptionId: bigint, type: string): Promise<boolean> {
+    const count = await prisma.notification.count({
+      where: {
+        tenantId,
+        type,
+        data: { path: "subscriptionId", equals: subscriptionId.toString() },
+      },
+    });
+    return count > 0;
+  },
 };

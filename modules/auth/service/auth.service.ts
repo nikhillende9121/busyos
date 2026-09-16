@@ -10,9 +10,12 @@ import type { AuthContext } from "@/shared/middleware/with-api-auth";
 import type { LoginDto, RefreshDto } from "../dto/auth.dto";
 import type { MeView, TokenPair } from "../types/auth.types";
 
-// Same message for "no such tenant", "no such user", and "wrong password" —
-// never let a login failure reveal which of the three actually failed, or
-// the endpoint becomes a tenant/email enumeration oracle.
+// Same message for "no such tenant", "no such user", "wrong password", and
+// a suspended tenant — never let a login failure reveal which of these
+// actually failed, or the endpoint becomes a tenant/email enumeration
+// oracle. A lapsed *subscription* is deliberately NOT folded into this —
+// see the SUBSCRIPTION_EXPIRED branch below, checked only after the
+// password has already been verified correct.
 const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password";
 
 export const authService = {
@@ -26,16 +29,23 @@ export const authService = {
       throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
     }
 
-    // Same generic message as every other branch above — a lapsed plan is
-    // not a reason to tell an unauthenticated caller anything more specific
-    // than "invalid credentials" (see the enumeration-safety comment above).
-    if (isSubscriptionExpired(await getActiveSubscription(user.tenantId))) {
-      throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
-    }
-
     const passwordMatches = await verifyPassword(input.password, user.password);
     if (!passwordMatches) {
       throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
+    }
+
+    // Checked only now, after the password is confirmed correct: a lapsed
+    // plan is a normal lifecycle state the account holder is entitled to
+    // know about (so they know to renew), unlike "does this email exist" —
+    // revealing it pre-password-check would let an attacker enumerate
+    // expired tenants without ever guessing a password; revealing it
+    // post-password-check only tells someone who already proved they own
+    // the credentials.
+    if (isSubscriptionExpired(await getActiveSubscription(user.tenantId))) {
+      throw new AppError(
+        "SUBSCRIPTION_EXPIRED",
+        "Your plan has expired. Please contact your account admin to renew your subscription.",
+      );
     }
 
     if (input.deviceId) {

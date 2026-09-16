@@ -46,6 +46,15 @@ export const superAdminSubscriptionController = {
     }
   },
 
+  async processExpiryAlerts() {
+    try {
+      const result = await superAdminSubscriptionService.processExpiryAlerts();
+      return successResponse(result, "Subscription expiry alerts processed");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
+
   async cancel(_request: NextRequest, _auth: SuperAdminAuthContext, params: SubscriptionParams) {
     try {
       const tenantId = idString.parse(params.id);

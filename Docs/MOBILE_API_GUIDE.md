@@ -278,7 +278,7 @@ Full current error code list:
 | `INVALID_CREDENTIALS` | 401 | Bad login — don't retry automatically |
 | `FEATURE_NOT_ENABLED` | 403 | Tenant's plan doesn't include this feature |
 | `PERMISSION_DENIED` | 403 | Role lacks the permission, or warehouse-scope mismatch (§4) |
-| `SUBSCRIPTION_EXPIRED` | 403 | |
+| `SUBSCRIPTION_EXPIRED` | 403 | Also returned directly from `POST /auth/login` (not just mid-session) once the tenant's plan has lapsed by date — but only after the password was verified correct; a wrong password on an expired-plan tenant still gets `INVALID_CREDENTIALS`, never this |
 | `RESOURCE_NOT_FOUND` | 404 | Also returned for another tenant's/warehouse's data — never 403, to avoid confirming it exists |
 | `DUPLICATE_SKU` / `DUPLICATE_BARCODE` / `DUPLICATE_CODE` / `DUPLICATE_EMAIL` | 409 | |
 | `CONFLICT` | 409 | |
