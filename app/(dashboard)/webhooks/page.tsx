@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Copy, RefreshCw, Trash2, Send } from "lucide-react";
+import Link from "next/link";
+import { Plus, Copy, RefreshCw, Trash2, Send, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -186,11 +187,21 @@ export default function WebhooksPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold font-heading">Webhooks</h1>
-        <p className="text-muted-foreground">
-          Receive orders from your own website, and push catalog, pricing, and discount changes out to it.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold font-heading">Webhooks</h1>
+          <p className="text-muted-foreground">
+            Receive orders from your own website, and push catalog, pricing, and discount changes out to it.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          render={
+            <Link href="/webhooks/guide">
+              <BookOpen /> Integration guide
+            </Link>
+          }
+        />
       </div>
 
       <Card className="max-w-2xl">

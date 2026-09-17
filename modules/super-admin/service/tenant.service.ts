@@ -14,7 +14,7 @@ import type {
   UploadTenantLogoDto,
   RemoveTenantLogoDto,
 } from "../dto/tenant.dto";
-import type { SuperAdminTenantView } from "../types/tenant.types";
+import type { SuperAdminTenantView, TenantWarehouseSummaryView } from "../types/tenant.types";
 
 export const superAdminTenantService = {
   async list(): Promise<SuperAdminTenantView[]> {
@@ -28,6 +28,15 @@ export const superAdminTenantService = {
       throw new AppError("RESOURCE_NOT_FOUND", "Tenant not found");
     }
     return toTenantView(tenant);
+  },
+
+  async listWarehouses(tenantId: bigint): Promise<TenantWarehouseSummaryView[]> {
+    const tenant = await superAdminTenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw new AppError("RESOURCE_NOT_FOUND", "Tenant not found");
+    }
+    const warehouses = await superAdminTenantRepository.findWarehousesByTenant(tenantId);
+    return warehouses.map((w) => ({ id: w.id.toString(), name: w.name, code: w.code }));
   },
 
   // Bootstraps everything a tenant needs to actually be usable — without

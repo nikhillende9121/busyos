@@ -101,4 +101,16 @@ export const superAdminTenantRepository = {
       update: { enabled },
     });
   },
+
+  // Backs the receipt-format assignment picker — "which store in this
+  // tenant". warehouse.repository.ts's own findManyByTenant is tenant-side
+  // only (module boundary, see Docs/MODULE_GUIDE.md), so this is a
+  // deliberate, minimal duplicate rather than a cross-module import.
+  findWarehousesByTenant(tenantId: bigint) {
+    return prisma.warehouse.findMany({
+      where: { tenantId, deletedAt: null },
+      select: { id: true, name: true, code: true },
+      orderBy: { name: "asc" },
+    });
+  },
 };

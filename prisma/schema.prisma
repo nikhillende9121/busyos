@@ -392,47 +392,48 @@ model Tenant {
   updatedAt    DateTime     @updatedAt
   deletedAt    DateTime?
 
-  settings              TenantSetting?
-  features              TenantFeature[]
-  subscriptions         TenantSubscription[]
-  units                 Unit[]
-  users                 User[]
-  roles                 Role[]
-  warehouses            Warehouse[]
-  categories            Category[]
-  brands                Brand[]
-  products              Product[]
-  customers             Customer[]
-  suppliers             Supplier[]
-  purchases             Purchase[]
-  sales                 Sale[]
-  inventoryBalances     InventoryBalance[]
-  inventoryTransactions InventoryTransaction[]
-  stockAdjustments      StockAdjustment[]
-  stockTransfers        StockTransfer[]
-  payments              Payment[]
-  auditLogs             AuditLog[]
-  notifications         Notification[]
-  attachments           Attachment[]
-  terminals             Terminal[]
-  cashSessions          CashSession[]
-  tenantDeliveryConfigs TenantDeliveryConfig[]
-  shipments             Shipment[]
-  idempotencyKeys       IdempotencyKey[]
-  customerGroups        CustomerGroup[]
-  priceLists            PriceList[]
-  discounts             Discount[]
-  coupons               Coupon[]
-  couponRedemptions     CouponRedemption[]
-  saleDiscounts         SaleDiscount[]
-  taxRates              TaxRate[]
-  extraCharges          ExtraCharge[]
-  userDevices           UserDevice[]
-  webhookIntegration    TenantWebhookIntegration?
-  webhookEndpoints      WebhookEndpoint[]
-  customerCredits       CustomerCredit[]
-  creditTransactions    CreditTransaction[]
-  productBatches        ProductBatch[]
+  settings                TenantSetting?
+  features                TenantFeature[]
+  subscriptions           TenantSubscription[]
+  units                   Unit[]
+  users                   User[]
+  roles                   Role[]
+  warehouses              Warehouse[]
+  categories              Category[]
+  brands                  Brand[]
+  products                Product[]
+  customers               Customer[]
+  suppliers               Supplier[]
+  purchases               Purchase[]
+  sales                   Sale[]
+  inventoryBalances       InventoryBalance[]
+  inventoryTransactions   InventoryTransaction[]
+  stockAdjustments        StockAdjustment[]
+  stockTransfers          StockTransfer[]
+  payments                Payment[]
+  auditLogs               AuditLog[]
+  notifications           Notification[]
+  attachments             Attachment[]
+  terminals               Terminal[]
+  cashSessions            CashSession[]
+  tenantDeliveryConfigs   TenantDeliveryConfig[]
+  shipments               Shipment[]
+  idempotencyKeys         IdempotencyKey[]
+  customerGroups          CustomerGroup[]
+  priceLists              PriceList[]
+  discounts               Discount[]
+  coupons                 Coupon[]
+  couponRedemptions       CouponRedemption[]
+  saleDiscounts           SaleDiscount[]
+  taxRates                TaxRate[]
+  extraCharges            ExtraCharge[]
+  userDevices             UserDevice[]
+  webhookIntegration      TenantWebhookIntegration?
+  webhookEndpoints        WebhookEndpoint[]
+  customerCredits         CustomerCredit[]
+  creditTransactions      CreditTransaction[]
+  productBatches          ProductBatch[]
+  receiptFormatAssignment ReceiptFormatAssignment?
 
   @@map("tenants")
 }
@@ -607,20 +608,21 @@ model Warehouse {
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  purchases             Purchase[]
-  sales                 Sale[]
-  inventoryBalances     InventoryBalance[]
-  inventoryTransactions InventoryTransaction[]
-  productBatches        ProductBatch[]
-  stockAdjustments      StockAdjustment[]
-  transfersFrom         StockTransfer[]            @relation("TransferFromWarehouse")
-  transfersTo           StockTransfer[]            @relation("TransferToWarehouse")
-  terminals             Terminal[]
-  priceLists            PriceList[]
-  discounts             Discount[]
-  coupons               Coupon[]
-  scopedUsers           User[]
-  webhookIntegrations   TenantWebhookIntegration[]
+  purchases               Purchase[]
+  sales                   Sale[]
+  inventoryBalances       InventoryBalance[]
+  inventoryTransactions   InventoryTransaction[]
+  productBatches          ProductBatch[]
+  stockAdjustments        StockAdjustment[]
+  transfersFrom           StockTransfer[]            @relation("TransferFromWarehouse")
+  transfersTo             StockTransfer[]            @relation("TransferToWarehouse")
+  terminals               Terminal[]
+  priceLists              PriceList[]
+  discounts               Discount[]
+  coupons                 Coupon[]
+  scopedUsers             User[]
+  webhookIntegrations     TenantWebhookIntegration[]
+  receiptFormatAssignment ReceiptFormatAssignment?
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -648,15 +650,85 @@ model Terminal {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
-  cashSessions CashSession[]
-  sales        Sale[]
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse               Warehouse                @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  cashSessions            CashSession[]
+  sales                   Sale[]
+  receiptFormatAssignment ReceiptFormatAssignment?
 
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([warehouseId])
   @@map("terminals")
+}
+
+// ---------------------------------------------------------------------------
+// POS Receipt Formats — a platform-level (Super Admin-owned) catalog, same
+// "system catalog, no tenantId of its own" shape as Plan/Feature/
+// DeliveryProvider. A tenant never authors a format, only gets one
+// assigned. The Android POS app is a renderer only — it fetches the
+// resolved format for its own Terminal (see ReceiptFormatAssignment) and
+// draws `schema.sections` against real sale data; `schema`'s shape is an
+// external contract with that app, not modeled field-by-field here.
+// ---------------------------------------------------------------------------
+
+model ReceiptFormat {
+  id         BigInt    @id @default(autoincrement())
+  name       String    @db.VarChar(150)
+  // Thermal paper width in mm (58/80 are the common real-world sizes, but
+  // not enforced as an enum — a printer's actual width is whatever it is).
+  paperWidth Int       @default(58)
+  // { sections: [...] } — see Docs/pos_receipt_format_guide.md. Validated
+  // only at the envelope level (schema/receipt-format.schema.ts), never a
+  // fixed section-type enum, so a new section type can be authored (and
+  // safely ignored by an older app build) without a backend deploy.
+  schema     Json
+  // Incremented on every schema edit — the Android app's cheap "did
+  // anything change" signal (GET .../receipt-format/version), never reset,
+  // never decremented.
+  version    Int       @default(1)
+  // At most one format may be the global fallback — enforced in
+  // receiptFormatService (a service-level invariant, not a DB constraint;
+  // MySQL has no portable partial-unique-index syntax across every version
+  // this app targets).
+  isDefault  Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  createdBy  BigInt?
+  deletedAt  DateTime?
+
+  assignments ReceiptFormatAssignment[]
+
+  @@map("receipt_formats")
+}
+
+// One row per assignment target. Exactly one of tenantId/warehouseId/
+// terminalId is set per row (enforced in receiptFormatService, not the
+// DB) — which one decides the assignment's scope: a whole tenant, one
+// store (Warehouse), or one POS device (Terminal). Resolution precedence
+// is terminal > warehouse > tenant > ReceiptFormat.isDefault, see
+// receiptFormatService.resolveForTerminal. The three single-column unique
+// indexes below give "at most one assignment per tenant/warehouse/
+// terminal" for free — MySQL doesn't treat NULLs as equal, so rows for a
+// different scope never collide with each other.
+model ReceiptFormatAssignment {
+  id              BigInt   @id @default(autoincrement())
+  receiptFormatId BigInt
+  tenantId        BigInt?
+  warehouseId     BigInt?
+  terminalId      BigInt?
+  createdAt       DateTime @default(now())
+
+  receiptFormat ReceiptFormat @relation(fields: [receiptFormatId], references: [id], onDelete: Cascade)
+  tenant        Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse     Warehouse?    @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  terminal      Terminal?     @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId])
+  @@unique([warehouseId])
+  @@unique([terminalId])
+  @@index([receiptFormatId])
+  @@map("receipt_format_assignments")
 }
 
 model CashSession {

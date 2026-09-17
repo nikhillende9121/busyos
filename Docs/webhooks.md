@@ -1,12 +1,18 @@
 # Webhooks & Website Integration — Design Plan
 
-> Status: **planned, not implemented.** This document is the design for a
-> feature that does not exist in the codebase yet — no `modules/webhook/`,
-> no `Webhook*` Prisma models. It follows the same shape every other
-> feature in this repo was built in: schema → backend module → frontend →
-> tests, gated by the existing Feature/Plan system. Nothing here should be
-> built without a plan-mode pass to confirm scope first, same as every
-> other feature this session.
+> Status: **Implemented.** This document was written as a pre-build design
+> plan; the feature described below now exists — `modules/webhook/`, all
+> `Webhook*`/`TenantWebhookIntegration`/`IdempotencyKey` Prisma models,
+> every route in §9, and the tenant-facing UI at `/webhooks` are real. The
+> body of this doc was largely followed as written and is kept as a design
+> reference, but for the exact current behavior (which of the 12
+> `WebhookEventType` values actually fire, real payload shapes, the actual
+> retry backoff, etc.) prefer the in-app guide at `/webhooks/guide`
+> (`app/(dashboard)/webhooks/guide/page.tsx`) or the source itself over
+> this doc — a few specifics below (e.g. `PRICE_LIST_UPDATED` and the
+> `DISCOUNT_*`/`COUPON_*` update/delete events) were scoped down at build
+> time and are not yet wired up, even though the schema enum still lists
+> them for future use.
 
 ## 1. What this is for
 

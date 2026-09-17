@@ -84,4 +84,13 @@ export const superAdminTenantController = {
     }
   },
 
+  async listWarehouses(_request: NextRequest, _auth: SuperAdminAuthContext, params: TenantParams) {
+    try {
+      const id = idString.parse(params.id);
+      const warehouses = await superAdminTenantService.listWarehouses(BigInt(id));
+      return successResponse(warehouses, "Warehouses retrieved");
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  },
 };

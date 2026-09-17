@@ -13,8 +13,8 @@ export function Sidebar() {
   const { can, hasFeature, isLoading, user } = useAuth();
 
   return (
-    <aside className="hidden w-60 shrink-0 border-r bg-muted/20 md:flex md:flex-col">
-      <div className="flex h-14 items-center justify-center border-b px-4">
+    <aside className="hidden w-64 shrink-0 border-r bg-muted/20 md:flex md:flex-col">
+      <div className="flex h-14 shrink-0 items-center justify-center border-b px-4">
         <Link href="/dashboard" className="flex items-center gap-2 font-heading font-semibold">
           {user?.tenantLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary URL, not a local/static asset
@@ -27,7 +27,7 @@ export function Sidebar() {
           )}
         </Link>
       </div>
-      <nav className="flex-1 space-y-6 overflow-y-auto p-4">
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
         {NAV_SECTIONS.map((section) => {
           const visibleItems = isLoading
             ? section.items
@@ -37,28 +37,32 @@ export function Sidebar() {
           if (visibleItems.length === 0) return null;
 
           return (
-            <div key={section.title} className="space-y-1">
-              <p className="px-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            <div key={section.title}>
+              <p className="mb-1.5 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 {section.title}
               </p>
-              {visibleItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "block rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
-                    pathname === item.href ? "bg-accent text-accent-foreground font-medium" : "text-foreground/80",
-                  )}
-                >
-                  {item.label}
-                </Link>
-              ))}
+              <div className="space-y-0.5">
+                {visibleItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      "block rounded-md px-3 py-2 text-sm leading-tight transition-colors hover:bg-accent hover:text-accent-foreground",
+                      pathname === item.href
+                        ? "bg-accent font-medium text-accent-foreground"
+                        : "text-foreground/80",
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
             </div>
           );
         })}
       </nav>
       {user?.warehouseId && (
-        <div className="border-t p-4">
+        <div className="shrink-0 border-t p-4">
           <Link
             href="/store"
             className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"

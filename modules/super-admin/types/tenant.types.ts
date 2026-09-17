@@ -12,3 +12,12 @@ export type SuperAdminTenantView = {
   createdAt: string;
   updatedAt: string;
 };
+
+// Minimal shape for a picker — e.g. receipt-formats' assign UI, "which
+// store in this tenant". Not the full warehouse detail modules/warehouse
+// already exposes tenant-side, since a Super Admin never edits a store.
+export type TenantWarehouseSummaryView = {
+  id: string;
+  name: string;
+  code: string;
+};

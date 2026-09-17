@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { label: "Contracts", href: "/super-admin/contracts" },
   { label: "Plans", href: "/super-admin/plans" },
   { label: "Features", href: "/super-admin/features" },
+  { label: "Receipt Formats", href: "/super-admin/receipt-formats" },
 ];
 
 // Deliberately separate from app/(dashboard)/layout.tsx — a Super Admin
