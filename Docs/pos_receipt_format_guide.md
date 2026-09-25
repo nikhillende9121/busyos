@@ -14,6 +14,83 @@ matters — it's the literal wire contract, not a paraphrase.
 
 ---
 
+## 0. Does the Super Admin preview/PDF actually match the printed receipt?
+
+This section was audited directly against the real client app's source
+(`C:\Users\CSI\Pro\retail` — the Flutter app covering Android, Windows desktop, and web)
+and every confirmed gap below was fixed there in the same pass, not just documented.
+
+### Fixed: the currency-symbol boxes
+
+**Root cause**: `ReceiptTokenResolver.buildTokens()` (fills in `{{subtotal}}`/`{{tax}}`/
+`{{discount}}`/`{{total}}` from the real sale) formatted those four amounts with
+`money()` — the app's normal on-screen currency formatter, which uses a literal `₹`
+glyph. Correct for phone/browser UI (Unicode-aware); wrong for a receipt, on *either*
+print path: ₹ has no representation in the 8-bit code page (e.g. CP437) a thermal
+printer's built-in font uses, and the PDF renderer's default font is one of the base-14
+PDF fonts (Helvetica), which predates ₹ the same way those code pages do — both print a
+box, not a rupee sign.
+
+**Fixed**: `lib/core/formatters.dart` gained two ASCII-only formatters —
+`receiptAmount()` (`"Rs. 1248.00"`, for the one bold grand-total-style line) and
+`receiptPlainAmount()` (`"1248.00"`, no prefix, for per-item table cells) — mirroring the
+convention the app's own legacy (pre-schema) renderer already used, just not applied
+everywhere. `ReceiptTokenResolver.buildTokens()`, the ESC-POS renderer's per-item cells,
+and the PDF renderer's per-item cells (which had the exact same `money()` bug,
+independently) all now use these instead. `money()` (with ₹) is untouched everywhere
+else in the app — only receipt-print text changed.
+
+**What you can still control from the schema**: never hardcode a currency symbol into a
+`text`/`keyvalue` section's *static* value (e.g. a label like `"Total (₹)"`) — the same
+box-printing problem applies to any literal text you author, not just the amount tokens.
+Use `"Rs."` or the currency code instead.
+
+### Fixed: `image` (logos never rendered on either path)
+
+Modeled correctly but never actually drawn — both renderers just returned nothing,
+silently. Fixed: a new `ReceiptImageLoader` fetches the URL's bytes (never throws — a
+broken/unreachable logo can't stop the rest of the receipt from printing), and both
+renderers now render it — `esc_pos_utils_plus`'s `Generator.image()` for ESC-POS,
+`pw.MemoryImage`/`pw.Image` for PDF.
+
+### Fixed: `row` (side-by-side layout) — was not implemented at all
+
+Added a `RowSection`/`RowChild` model (`lib/data/models/receipt_format.dart`) and support
+in both renderers. **PDF**: a real `pw.Row`, exactly like the portal preview — no
+technical limitation there. **ESC-POS**: this needed a real design decision, since
+`Generator.row()` only accepts single-line text columns whose widths must sum to exactly
+12 — so a row of `text`/`keyvalue` children renders as true side-by-side columns
+(each child's `width` becomes a proportional share of those 12 units); a row holding
+anything else (a nested table, image, graphic, or another row) — or more children than a
+12-unit grid can give one column each — falls back to stacking every child in order
+instead of dropping them or crashing the print job.
+
+### Genuine hardware limit, not a software gap: `xs` on ESC-POS (Bluetooth)
+
+The PDF path sizes `xs` correctly (a real, smaller point size). On ESC-POS, checked
+`esc_pos_utils_plus`'s `PosTextSize` enum directly: it only defines `size1` (the base
+font) through `size8` (8×) — there is no sub-1 multiplier. The thermal-printer character-
+size command this library wraps (`GS !`) has no way to print *smaller* than a printer's
+own base font at all — `small`/`normal`/`xs` are all already the smallest size a real
+thermal printer can produce, so there's nothing to implement here; the printed distinction
+`small` vs. `xs` (or vs. `normal`) can only ever exist on paper via the PDF/desktop path.
+
+### A custom `items` column still has nothing to fill it with
+
+`name`/`qty`/`price`/`total` are the only fields the app's per-item data actually carries
+— confirmed directly in the renderers. This isn't a rendering bug to fix; a genuinely new
+column (e.g. `"sku"`) needs the app's own per-item data model extended first, since the
+schema only says how to lay out data the app already has.
+
+### Already working, previously mis-documented as portal-only
+
+`terms` and `items.totals` were already fully implemented in the real app's renderers
+before this audit — they print exactly as previewed. Earlier revisions of this doc called
+them portal-only, carried over from the original generic Android spec this guide started
+from; that was inaccurate for this actual app.
+
+---
+
 ## 1. The schema contract
 
 A receipt format's `schema` column is `{ "sections": [...] }` — an ordered list of
@@ -30,13 +107,13 @@ use `value`; only `keyvalue` additionally has `key`.
 | `text`     | `value` (string, may contain `{{tokens}}`), `align` (`left`\|`center`\|`right`), `bold` (boolean), `size` (`xs`\|`small`\|`normal`\|`large`) | one line of text |
 | `keyvalue` | `key` (string), `value` (string, may contain `{{tokens}}`), `bold` (boolean) | label on the left, value on the right, same line |
 | `divider`  | *(no fields)*                                                                 | full-width separator line |
-| `items`    | `columns` (array — any subset/order of `"name"`, `"qty"`, `"price"`, `"total"`; see the custom-column warning below), `headers` (object, column key → custom label, e.g. `{ "name": "Product" }`), `totals` (array of `{ label, value, bold? }` — Subtotal/Tax/Total rows merged into this table as a footer; see the warning below), `bordered` (boolean, default `true`) | renders the sale's line items **as a table, with a header row** — `columns` controls which columns show and their order, `headers` controls each one's label, `bordered: false` drops the grid lines for a plain list look |
-| `image`    | `value` (an image URL), `align` (`left`\|`center`\|`right`)                  | logo — the printer needs a monochrome bitmap, the URL is fetched and converted on-device |
-| `barcode`  | `value` (string, may contain `{{tokens}}`)                                   | symbology defaults to `code128` on the app side — see the warning below |
+| `items`    | `columns` (array — any subset/order of `"name"`, `"qty"`, `"price"`, `"total"`; see the custom-column note below), `headers` (object, column key → custom label, e.g. `{ "name": "Product" }`), `totals` (array of `{ label, value, bold? }` — Subtotal/Tax/Total rows merged into this table as a footer, fully supported — see below), `bordered` (boolean, default `true`) | renders the sale's line items **as a table, with a header row** — `columns` controls which columns show and their order, `headers` controls each one's label, `bordered: false` drops the grid lines for a plain list look |
+| `image`    | `value` (an image URL), `align` (`left`\|`center`\|`right`)                  | logo, fully supported on both print paths — see below |
+| `barcode`  | `value` (string, may contain `{{tokens}}`)                                   | symbology defaults to `code128` on the app side — see the note below |
 | `qr`       | `value` (string, may contain `{{tokens}}`)                                   | |
 | `spacer`   | `lines` (integer)                                                             | blank vertical space, that many text-lines tall |
-| `terms`    | `value` (string, `\n`-separated lines, may contain `{{tokens}}`), `align`, `size` (defaults to `xs`) | a small-print terms & conditions block — see the warning below |
-| `row`      | `sections` (array of section objects, any type, even a nested `row`) | lays its children out **side by side** instead of stacked — see the warning below |
+| `terms`    | `value` (string, `\n`-separated lines, may contain `{{tokens}}`), `align`, `size` (defaults to `xs`) | a small-print terms & conditions block, fully supported — see below |
+| `row`      | `sections` (array of section objects, any type, even a nested `row`), each child's own optional `width` (number, default `1`, relative share) | lays its children out **side by side** instead of stacked, fully supported — see below |
 
 Note on `items.bordered`: unlike the other `items` extras above, this one carries **no**
 device-support caveat either way — a real thermal printer never draws box-border grid
@@ -44,36 +121,34 @@ lines regardless of what this is set to, so it's purely how the Super Admin UI's
 preview chooses to render the table while authoring. `false` gives a plain list (no grid
 lines), closer to how most compact thermal receipts actually look in practice.
 
-⚠️ **`terms` is a portal-only addition — it isn't in the original Android guide's
-section-type list at all.** It previews here exactly like a small multi-line `text`
-block, but per the app's own forward-compatible design, an unrecognized `type` is
-skipped silently, not rendered with some default styling. That means a `terms` section
-prints **nothing** on a real device until the Android renderer adds a matching case.
-Until then, an equivalent way to get terms & conditions onto an actual printed receipt
-today is a plain `text` section with `size: "xs"` and `\n` for line breaks — same visual
-result, but it works right now because `text` already has device support.
+✅ **`terms` is fully supported by the real client app** (`C:\Users\CSI\Pro\retail`, the
+Flutter app covering Android + Windows desktop + web — confirmed directly in its code,
+both the ESC-POS renderer and the PDF renderer implement a `terms` case). The original
+generic Android spec this guide started from didn't have this section type, which is why
+earlier revisions of this doc called it portal-only — that's now out of date for the
+actual app. Still worth knowing: any *other* client ever built against this same schema
+(if one exists) inherits the same forward-compatible "unknown type → skip" rule, so
+`terms` would silently vanish there until that client adds support too.
 
-⚠️ **`row` is a portal-only addition too, with a sharper failure mode than the others.**
-The Android guide's renderer (Section 6.2's `renderReceipt`) is one straight top-to-bottom
-loop over `sections` — there's no concept anywhere of laying two sections out next to
-each other. A `row` previews here as a real side-by-side layout (each child gets an equal
-share of the width, or a custom share via that child's own `width`, a relative number), but
-on a real device, `row` is just an unrecognized `type` like any other — which means **every
-section nested inside it is skipped too, not stacked as a fallback**. Don't put anything
-inside a `row` that must actually appear on a printed receipt until the Android renderer
-adds support for it (and decides what its own fallback behavior should be — stacked,
-first-child-only, or something else).
+✅ **`row` is fully supported by the real client app.** PDF renders a true side-by-side
+`pw.Row`, identical to the portal preview. ESC-POS is more constrained by the hardware —
+`Generator.row()` only accepts single-line text columns — so a row of `text`/`keyvalue`
+children prints as real side-by-side columns; a row holding anything more complex (a
+nested `items` table, `image`, `qr`/`barcode`, or another `row`) — or more children than
+fit a 12-unit grid — falls back to printing every child stacked, in order, rather than
+dropping any of them.
 
 **Text sizing** (`size` on a `text` section): `xs` / `small` / `normal` (default) / `large`.
 There's no numeric point size — the app maps these buckets to its own font scale so
 a receipt stays legible at both 58mm and 80mm.
 
-⚠️ **`xs` is a portal-only addition.** The original Android guide's own field table only
-defines three buckets (`small`/`normal`/`large`). `xs` previews correctly in the Super
-Admin UI, but won't print any smaller than whatever the app's `small` bucket maps to
-until the Android renderer adds a matching `xs` case to its own size switch. Flag this to
-the Android team before relying on it for anything that needs to be genuinely tiny (e.g.
-dense multi-column tables on a wide sheet).
+⚠️ **`xs` only takes effect on the PDF/desktop print path — and this is a printer
+hardware limit, not a fixable app gap.** The PDF renderer gives `xs` its own smaller font
+size. On ESC-POS (`esc_pos_utils_plus`'s `PosTextSize` enum), the printer's character-size
+command only offers `size1` (the base font) through `size8` (8×) — there's no way to
+address anything *smaller* than a printer's own base font. `small`/`normal`/`xs` are
+already the smallest size a real thermal printer can produce, so on a Bluetooth-printed
+receipt they're indistinguishable by design, not by omission.
 
 **Spacing**: there's no generic margin/padding field on any section — vertical spacing is
 entirely `divider` (a visible rule) and `spacer` (blank space, sized in `lines`) between
@@ -97,18 +172,18 @@ column onto a real receipt requires the Android app's line-item data model to be
 extended first — this backend and portal have no part to play in that (the `schema` JSON
 only says how to lay out data the app already has).
 
-⚠️ **`items.totals` (Subtotal/Tax/Total merged into the table) is portal-preview-only —
-the default template uses it, by explicit choice, for a better invoice-style look while
-authoring, but it won't print on a real device yet.** The Android guide's `items` section
-is just a table of line items — it has no footer concept at all. `totals` lets you author
-Subtotal/Discount/Tax/Total (or anything else) as extra rows inside the same bordered
-table, and the Super Admin UI's live preview renders it that way, but nothing in `totals`
-reaches a real receipt until the app's items renderer grows a matching footer case. **If
-you need these values to actually print today**, replace `totals` with separate
-`keyvalue` sections right after the `items` section instead — e.g.
-`{ "type": "keyvalue", "key": "Subtotal", "value": "{{subtotal}}" }` — since `keyvalue`
-is a real, currently-supported section type. Both approaches use the same tokens
-(`{{subtotal}}`/`{{discount}}`/`{{tax}}`/`{{total}}`); only where they're placed differs.
+✅ **`items.totals` (Subtotal/Tax/Total merged into the table) is fully supported by the
+real client app** — confirmed directly in both `_renderItems` (ESC-POS) and `_buildItems`
+(PDF) in the app's code, both honor `totals` and render each row as part of the same
+table. The default template uses it for exactly this reason. (Separate `keyvalue` rows
+after `items` also still work — either approach is fine; `totals` just keeps the totals
+visually inside the same table box.)
+
+✅ **`image` is fully supported on both print paths.** A new `ReceiptImageLoader`
+(`lib/printing/receipt_image_loader.dart`) fetches the URL's bytes — the ESC-POS renderer
+decodes them with the `image` package and hands them to `Generator.image()`; the PDF
+renderer passes the raw bytes straight to `pw.MemoryImage`. A broken/unreachable/corrupt
+URL never throws and never blocks the rest of the receipt — that section is just skipped.
 
 ⚠️ **Barcode symbology field is ambiguous in the original Android spec.** Its own field
 table lists a `type` property for the barcode's symbology (e.g. `code128`) — but that

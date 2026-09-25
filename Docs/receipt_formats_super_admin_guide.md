@@ -127,7 +127,14 @@ is left pointing at a deleted format.
   it just prints as an empty space, which is the most common reason a "finished" format
   looks wrong on a real receipt. Always check it against the reference panel's token
   list.
-- **Use the PDF download before rolling a format out.** The on-screen preview is
-  accurate, but printing (or saving) the PDF and looking at actual paper is the fastest
-  way to catch anything that looks fine on a monitor but wraps or crowds oddly at real
-  thermal-printer size.
+- **Use the PDF download before rolling a format out — but know what it can't catch.**
+  Printing (or saving) the PDF and looking at actual paper is the fastest way to check
+  layout: does it wrap oddly, crowd a column, fit the physical size you expect. What it
+  *can't* catch: the PDF renders through a browser (same as the on-screen preview), while
+  a real POS device prints through the thermal printer's own built-in font. A currency
+  symbol (₹, most commonly) that looks perfectly fine in the PDF can still print as a box
+  on the actual device, because that printer font doesn't have a glyph for it — this is
+  invisible in every portal check, only shows up on real paper from a real device. If a
+  format is printing boxes where an amount should be, that's not something to fix in the
+  schema — it means whoever built the Android app's printing code needs to stop sending
+  that symbol as-is to the printer (use "Rs." instead) — flag it to them directly.

@@ -707,6 +707,18 @@ export function ReceiptFormatForm({
                     ))}
                   </div>
                 </div>
+                <div className="border-t pt-2 text-amber-700">
+                  <p className="font-medium">Don&apos;t type a currency symbol (₹, $, …) into static text.</p>
+                  <p className="text-muted-foreground">
+                    A thermal printer&apos;s built-in font almost never includes ₹ (it prints as a box) — this
+                    preview can&apos;t catch that, since it renders through a browser font, not the printer&apos;s.
+                    Use <code className="rounded bg-muted px-0.5">Rs.</code> instead. This only covers text you type
+                    directly into the schema — <code className="rounded bg-muted px-0.5">{"{{total}}"}</code> and
+                    the other amount tokens are formatted by the Android app itself at print time, outside this
+                    schema&apos;s control; see Docs/pos_receipt_format_guide.md §0 if one of those is printing as
+                    boxes.
+                  </p>
+                </div>
               </div>
             )}
             <Textarea
