@@ -65,6 +65,37 @@ anything else (a nested table, image, graphic, or another row) — or more child
 12-unit grid can give one column each — falls back to stacking every child in order
 instead of dropping them or crashing the print job.
 
+### Fixed: `items.bordered` — was parsed by nobody, drawn by nobody
+
+The field didn't exist in the app's model at all (`ItemsSection` only had `columns`/
+`headers`/`totals`) — every items table was borderless, always, no matter what the schema
+said. Added `bordered` to the model (default `true`, matching the portal), and drew it on
+both paths: PDF gets a true bordered grid (`pw.Table` with `TableBorder.all()` on every
+cell — an exact match for the portal preview); ESC-POS gets top/bottom hardware rules
+(`Generator.hr()`) framing the block, the closest a real thermal printer's command set can
+get to "bordered" (no ESC-POS command draws a box around an individual cell — see the
+`items.bordered` note below for the honest capability gap between the two paths).
+
+### Fixed: the PDF/desktop path didn't look like a receipt — wrong font
+
+Confirmed by generating an actual PDF from the real code path and inspecting it directly
+(not assumed): the `pdf` package's default font is Helvetica — proportional, not
+monospace — while the Super Admin portal's preview uses a monospace font (Tailwind
+`font-mono`) throughout. Same content, visibly different typeface, on top of everything
+else. Fixed: `ReceiptPdfService.buildPdf` now sets the whole document's theme to Courier
+(`pw.Font.courier()` / `courierBold()` / `courierOblique()` / `courierBoldOblique()`) —
+one of the 14 base PDF fonts, no font file to bundle. Courier is meaningfully *wider* per
+character than Helvetica at the same point size (every glyph is the width of the widest
+one, by definition of monospace), which was immediately visible as numeric columns
+wrapping onto two lines on a 58mm receipt — `_pdfFontSize`'s point sizes were reduced
+(`xs` 6→5, `small` 7→6, `normal` 8→7, `large` 12→10) and the `items.totals` footer's
+label/value column split widened (2:1 → 3:2) to compensate. Column proportions for the
+items table itself (`columns`/`headers`) are still independently computed by this app's
+`flexFor` helper, not literally copied from the portal's own browser table-auto-layout
+sizing — the two will not produce byte-identical column widths for arbitrary content, only
+a close visual match; this is the app's own layout logic. `bordered: true` is now visually
+correct end to end, confirmed on an actual generated PDF, not just from reading the code.
+
 ### Genuine hardware limit, not a software gap: `xs` on ESC-POS (Bluetooth)
 
 The PDF path sizes `xs` correctly (a real, smaller point size). On ESC-POS, checked
@@ -115,11 +146,14 @@ use `value`; only `keyvalue` additionally has `key`.
 | `terms`    | `value` (string, `\n`-separated lines, may contain `{{tokens}}`), `align`, `size` (defaults to `xs`) | a small-print terms & conditions block, fully supported — see below |
 | `row`      | `sections` (array of section objects, any type, even a nested `row`), each child's own optional `width` (number, default `1`, relative share) | lays its children out **side by side** instead of stacked, fully supported — see below |
 
-Note on `items.bordered`: unlike the other `items` extras above, this one carries **no**
-device-support caveat either way — a real thermal printer never draws box-border grid
-lines regardless of what this is set to, so it's purely how the Super Admin UI's own
-preview chooses to render the table while authoring. `false` gives a plain list (no grid
-lines), closer to how most compact thermal receipts actually look in practice.
+✅ **`items.bordered` is honored on both real print paths, within what each is actually
+capable of.** PDF/desktop draws a true bordered grid (`pw.Table` with a real border on
+every cell) — an exact match for the portal preview. ESC-POS text printing has no "draw a
+box" command at all, so there's no way to put a border around individual cells on a real
+thermal printer regardless of this setting; what it *can* do, and now does, is a hardware
+rule (`Generator.hr()`) framing the top and bottom of the block — the closest a real
+till receipt gets to "bordered," and different from the portal's full grid by necessity,
+not by omission. `false` on either path drops to a plain list with no rules/grid at all.
 
 ✅ **`terms` is fully supported by the real client app** (`C:\Users\CSI\Pro\retail`, the
 Flutter app covering Android + Windows desktop + web — confirmed directly in its code,
