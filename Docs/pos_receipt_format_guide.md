@@ -30,13 +30,19 @@ use `value`; only `keyvalue` additionally has `key`.
 | `text`     | `value` (string, may contain `{{tokens}}`), `align` (`left`\|`center`\|`right`), `bold` (boolean), `size` (`xs`\|`small`\|`normal`\|`large`) | one line of text |
 | `keyvalue` | `key` (string), `value` (string, may contain `{{tokens}}`), `bold` (boolean) | label on the left, value on the right, same line |
 | `divider`  | *(no fields)*                                                                 | full-width separator line |
-| `items`    | `columns` (array — any subset/order of `"name"`, `"qty"`, `"price"`, `"total"`; see the custom-column warning below), `headers` (object, column key → custom label, e.g. `{ "name": "Product" }`), `totals` (array of `{ label, value, bold? }` — Subtotal/Tax/Total rows merged into this table as a footer; see the warning below) | renders the sale's line items **as a table, with a header row** — `columns` controls which columns show and their order, `headers` controls each one's label |
+| `items`    | `columns` (array — any subset/order of `"name"`, `"qty"`, `"price"`, `"total"`; see the custom-column warning below), `headers` (object, column key → custom label, e.g. `{ "name": "Product" }`), `totals` (array of `{ label, value, bold? }` — Subtotal/Tax/Total rows merged into this table as a footer; see the warning below), `bordered` (boolean, default `true`) | renders the sale's line items **as a table, with a header row** — `columns` controls which columns show and their order, `headers` controls each one's label, `bordered: false` drops the grid lines for a plain list look |
 | `image`    | `value` (an image URL), `align` (`left`\|`center`\|`right`)                  | logo — the printer needs a monochrome bitmap, the URL is fetched and converted on-device |
 | `barcode`  | `value` (string, may contain `{{tokens}}`)                                   | symbology defaults to `code128` on the app side — see the warning below |
 | `qr`       | `value` (string, may contain `{{tokens}}`)                                   | |
 | `spacer`   | `lines` (integer)                                                             | blank vertical space, that many text-lines tall |
 | `terms`    | `value` (string, `\n`-separated lines, may contain `{{tokens}}`), `align`, `size` (defaults to `xs`) | a small-print terms & conditions block — see the warning below |
 | `row`      | `sections` (array of section objects, any type, even a nested `row`) | lays its children out **side by side** instead of stacked — see the warning below |
+
+Note on `items.bordered`: unlike the other `items` extras above, this one carries **no**
+device-support caveat either way — a real thermal printer never draws box-border grid
+lines regardless of what this is set to, so it's purely how the Super Admin UI's own
+preview chooses to render the table while authoring. `false` gives a plain list (no grid
+lines), closer to how most compact thermal receipts actually look in practice.
 
 ⚠️ **`terms` is a portal-only addition — it isn't in the original Android guide's
 section-type list at all.** It previews here exactly like a small multi-line `text`

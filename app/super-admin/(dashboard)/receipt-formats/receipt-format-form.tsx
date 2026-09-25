@@ -57,7 +57,7 @@ const SECTION_TYPE_REFERENCE: { type: string; description: string }[] = [
   {
     type: "items",
     description:
-      'columns (array, any subset/order of "name"/"qty"/"price"/"total" — plus any custom key, previewable but blank on-device until the app supports it). headers (object, column key → custom label). totals (array of { label, value, bold? }, e.g. Subtotal/Tax/Total rows merged into the same table as a footer — portal-only preview, see the warning below).',
+      'columns (array, any subset/order of "name"/"qty"/"price"/"total" — plus any custom key, previewable but blank on-device until the app supports it). headers (object, column key → custom label). totals (array of { label, value, bold? }, e.g. Subtotal/Tax/Total rows merged into the same table as a footer — portal-only preview, see the warning below). bordered (true/false, default true) — set false for a plain list with no grid lines, closer to a compact thermal receipt; this one\'s purely a preview choice either way, a real printer never draws box borders.',
   },
   { type: "image", description: "value (an image URL), align (left/center/right) — a logo." },
   { type: "barcode", description: "value (text, may use {{tokens}}) — symbology defaults to code128 on the app side." },
@@ -427,11 +427,20 @@ function ReceiptSectionPreview({ section }: { section: PreviewSection }) {
           )
         : [];
       const labelSpan = Math.max(1, columns.length - 1);
+      // Grid lines are a portal-only visual choice, not part of the device
+      // contract either way — a real thermal printer doesn't draw box
+      // borders, it just prints plain text columns, so this never needed
+      // the "won't print on a real device" caveat the other items fields
+      // get. Defaults to bordered (the more legible option while
+      // authoring); set `"bordered": false` for a plain-text look closer
+      // to a compact thermal receipt.
+      const bordered = section.bordered !== false;
+      const cellBorder = bordered ? "border border-black/70" : "";
       return (
         <div className="space-y-1">
-          <table className="w-full border-collapse border border-black/70">
+          <table className={cn("w-full border-collapse", bordered && "border border-black/70")}>
             <thead>
-              <tr className="bg-black/10">
+              <tr className={bordered ? "bg-black/10" : "border-b border-black/70"}>
                 {columns.map((col) => {
                   const override = headerOverrides[col];
                   const label =
@@ -440,7 +449,8 @@ function ReceiptSectionPreview({ section }: { section: PreviewSection }) {
                     <th
                       key={col}
                       className={cn(
-                        "border border-black/70 px-1 py-0.5 font-bold",
+                        cellBorder,
+                        "px-1 py-0.5 font-bold",
                         rightAligned.has(col) ? "text-right" : "text-left",
                       )}
                     >
@@ -459,7 +469,8 @@ function ReceiptSectionPreview({ section }: { section: PreviewSection }) {
                       <td
                         key={col}
                         className={cn(
-                          "border border-black/70 px-1 py-0.5",
+                          cellBorder,
+                          "px-1 py-0.5",
                           rightAligned.has(col) ? "text-right" : "text-left",
                           isCustom && "italic text-muted-foreground",
                         )}
@@ -475,10 +486,10 @@ function ReceiptSectionPreview({ section }: { section: PreviewSection }) {
               <tfoot>
                 {totalsRows.map((row, i) => (
                   <tr key={i} className={cn(Boolean(row.bold) && "font-bold")}>
-                    <td colSpan={labelSpan} className="border border-black/70 px-1 py-0.5 text-right">
+                    <td colSpan={labelSpan} className={cn(cellBorder, "px-1 py-0.5 text-right")}>
                       {asText(row.label)}
                     </td>
-                    <td className="border border-black/70 px-1 py-0.5 text-right">
+                    <td className={cn(cellBorder, "px-1 py-0.5 text-right")}>
                       {substituteTokens(asText(row.value))}
                     </td>
                   </tr>
