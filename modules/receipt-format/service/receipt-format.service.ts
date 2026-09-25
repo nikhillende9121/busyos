@@ -150,10 +150,13 @@ export const receiptFormatService = {
   // token — see shared/middleware/with-api-auth.ts's AuthContext, already
   // set for a warehouse-scoped POS user) instead of a Terminal lookup;
   // `posId` still participates in the terminal-level check via
-  // findAssignmentByTerminal, for the rare case a Terminal row and an
-  // assignment for it do exist.
+  // findAssignmentByTerminal when it's a bigint, for the rare case a
+  // Terminal row and an assignment for it do exist — `null` (a posId that
+  // isn't purely numeric; Terminal.id is a BigInt column so it can't be
+  // one) just skips that one check and falls through to store/tenant/
+  // default.
   async resolveForTerminal(
-    posId: bigint,
+    posId: bigint | null,
     tenantId: bigint,
     warehouseId: bigint | null,
   ): Promise<ResolvedReceiptFormatView> {
@@ -172,7 +175,7 @@ export const receiptFormatService = {
   },
 
   async resolveVersionForTerminal(
-    posId: bigint,
+    posId: bigint | null,
     tenantId: bigint,
     warehouseId: bigint | null,
   ): Promise<ResolvedReceiptFormatVersionView> {
@@ -182,12 +185,14 @@ export const receiptFormatService = {
 };
 
 async function resolveFormatFor(
-  terminalId: bigint,
+  terminalId: bigint | null,
   warehouseId: bigint | null,
   tenantId: bigint,
 ): Promise<ReceiptFormat | null> {
-  const terminalAssignment = await receiptFormatRepository.findAssignmentByTerminal(terminalId);
-  if (terminalAssignment) return terminalAssignment.receiptFormat;
+  if (terminalId) {
+    const terminalAssignment = await receiptFormatRepository.findAssignmentByTerminal(terminalId);
+    if (terminalAssignment) return terminalAssignment.receiptFormat;
+  }
 
   if (warehouseId) {
     const warehouseAssignment = await receiptFormatRepository.findAssignmentByWarehouse(warehouseId);
