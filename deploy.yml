@@ -1,0 +1,35 @@
+name: Deploy BusyOS
+
+on:
+  push:
+    branches:
+      - Nikhil
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          script: |
+            cd /var/www/busyos-main
+
+            echo "Pulling latest code..."
+            git pull origin Nikhil
+
+            echo "Installing dependencies..."
+            npm ci
+
+            echo "Building Next.js..."
+            npm run build
+
+            echo "Restarting BusyOS..."
+            pm2 restart busyos
+
+            echo "Deployment completed!"
