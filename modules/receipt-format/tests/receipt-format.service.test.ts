@@ -48,25 +48,18 @@ function formatRow(overrides: Partial<Record<string, unknown>> = {}) {
 describe("receiptFormatService.resolveForTerminal", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.mocked(receiptFormatRepository.findTerminalById).mockResolvedValue({
-      id: 5n,
-      tenantId: 100n,
-      warehouseId: 20n,
+  });
+
+  it("never looks up the Terminal table — a tenant/default assignment must resolve even for an unregistered posId", async () => {
+    vi.mocked(receiptFormatRepository.findAssignmentByTerminal).mockResolvedValue(null);
+    vi.mocked(receiptFormatRepository.findAssignmentByTenant).mockResolvedValue({
+      receiptFormat: formatRow({ id: 3n, name: "Tenant format" }),
     } as never);
-  });
 
-  it("throws RESOURCE_NOT_FOUND when the terminal doesn't exist", async () => {
-    vi.mocked(receiptFormatRepository.findTerminalById).mockResolvedValue(null);
+    const result = await receiptFormatService.resolveForTerminal(5n, 100n, null);
 
-    await expect(receiptFormatService.resolveForTerminal(5n, 100n)).rejects.toMatchObject({
-      code: "RESOURCE_NOT_FOUND",
-    });
-  });
-
-  it("throws RESOURCE_NOT_FOUND when the terminal belongs to a different tenant", async () => {
-    await expect(receiptFormatService.resolveForTerminal(5n, 999n)).rejects.toMatchObject({
-      code: "RESOURCE_NOT_FOUND",
-    });
+    expect(result.formatId).toBe("3");
+    expect(receiptFormatRepository.findTerminalById).not.toHaveBeenCalled();
   });
 
   it("prefers a terminal-level assignment over warehouse, tenant, and default", async () => {
@@ -80,14 +73,14 @@ describe("receiptFormatService.resolveForTerminal", () => {
       receiptFormat: formatRow({ id: 3n, name: "Tenant format" }),
     } as never);
 
-    const result = await receiptFormatService.resolveForTerminal(5n, 100n);
+    const result = await receiptFormatService.resolveForTerminal(5n, 100n, 20n);
 
     expect(result.formatId).toBe("1");
     expect(receiptFormatRepository.findAssignmentByWarehouse).not.toHaveBeenCalled();
     expect(receiptFormatRepository.findAssignmentByTenant).not.toHaveBeenCalled();
   });
 
-  it("falls back to the warehouse assignment when there's no terminal-level one", async () => {
+  it("falls back to the caller's own warehouse assignment (from auth, not a Terminal lookup) when there's no terminal-level one", async () => {
     vi.mocked(receiptFormatRepository.findAssignmentByTerminal).mockResolvedValue(null);
     vi.mocked(receiptFormatRepository.findAssignmentByWarehouse).mockResolvedValue({
       receiptFormat: formatRow({ id: 2n, name: "Warehouse format" }),
@@ -96,10 +89,23 @@ describe("receiptFormatService.resolveForTerminal", () => {
       receiptFormat: formatRow({ id: 3n, name: "Tenant format" }),
     } as never);
 
-    const result = await receiptFormatService.resolveForTerminal(5n, 100n);
+    const result = await receiptFormatService.resolveForTerminal(5n, 100n, 20n);
 
     expect(result.formatId).toBe("2");
+    expect(receiptFormatRepository.findAssignmentByWarehouse).toHaveBeenCalledWith(20n);
     expect(receiptFormatRepository.findAssignmentByTenant).not.toHaveBeenCalled();
+  });
+
+  it("skips the warehouse-level check entirely when the caller has no warehouse scope", async () => {
+    vi.mocked(receiptFormatRepository.findAssignmentByTerminal).mockResolvedValue(null);
+    vi.mocked(receiptFormatRepository.findAssignmentByTenant).mockResolvedValue({
+      receiptFormat: formatRow({ id: 3n, name: "Tenant format" }),
+    } as never);
+
+    const result = await receiptFormatService.resolveForTerminal(5n, 100n, null);
+
+    expect(result.formatId).toBe("3");
+    expect(receiptFormatRepository.findAssignmentByWarehouse).not.toHaveBeenCalled();
   });
 
   it("falls back to the tenant assignment when neither terminal nor warehouse has one", async () => {
@@ -109,7 +115,7 @@ describe("receiptFormatService.resolveForTerminal", () => {
       receiptFormat: formatRow({ id: 3n, name: "Tenant format" }),
     } as never);
 
-    const result = await receiptFormatService.resolveForTerminal(5n, 100n);
+    const result = await receiptFormatService.resolveForTerminal(5n, 100n, 20n);
 
     expect(result.formatId).toBe("3");
   });
@@ -120,7 +126,7 @@ describe("receiptFormatService.resolveForTerminal", () => {
     vi.mocked(receiptFormatRepository.findAssignmentByTenant).mockResolvedValue(null);
     vi.mocked(receiptFormatRepository.findDefault).mockResolvedValue(formatRow({ id: 4n, isDefault: true }) as never);
 
-    const result = await receiptFormatService.resolveForTerminal(5n, 100n);
+    const result = await receiptFormatService.resolveForTerminal(5n, 100n, 20n);
 
     expect(result.formatId).toBe("4");
   });
@@ -131,7 +137,7 @@ describe("receiptFormatService.resolveForTerminal", () => {
     vi.mocked(receiptFormatRepository.findAssignmentByTenant).mockResolvedValue(null);
     vi.mocked(receiptFormatRepository.findDefault).mockResolvedValue(null);
 
-    await expect(receiptFormatService.resolveForTerminal(5n, 100n)).rejects.toMatchObject({
+    await expect(receiptFormatService.resolveForTerminal(5n, 100n, 20n)).rejects.toMatchObject({
       code: "RESOURCE_NOT_FOUND",
     });
   });

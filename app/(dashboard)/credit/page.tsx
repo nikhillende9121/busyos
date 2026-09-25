@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, History, Wallet, Settings2 } from "lucide-react";
+import { Plus, History, Wallet, Settings2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -465,7 +466,24 @@ function TransactionHistoryDialog({
   });
 
   const columns: DataTableColumn<CreditTransactionView>[] = [
-    { key: "createdAt", header: "Date", render: (row) => new Date(row.createdAt).toLocaleString() },
+    {
+      key: "createdAt",
+      header: "Date",
+      render: (row) => (
+        <span className="inline-flex items-center gap-1.5">
+          {new Date(row.createdAt).toLocaleString()}
+          {row.referenceType === "SALE" && row.referenceId && (
+            <Link
+              href={`/sales/${row.referenceId}`}
+              className="inline-flex items-center text-muted-foreground hover:text-foreground"
+              title="View sale"
+            >
+              <ExternalLink className="size-3.5" />
+            </Link>
+          )}
+        </span>
+      ),
+    },
     { key: "type", header: "Type", render: (row) => TRANSACTION_TYPE_LABELS[row.type] },
     {
       key: "amount",
@@ -491,7 +509,7 @@ function TransactionHistoryDialog({
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Transaction history — {customer.customerName}</DialogTitle>
-          <DialogDescription>Every in/out movement against this customer's credit account.</DialogDescription>
+          <DialogDescription>Every in/out movement against this customer&apos;s credit account.</DialogDescription>
         </DialogHeader>
 
         <DataTable

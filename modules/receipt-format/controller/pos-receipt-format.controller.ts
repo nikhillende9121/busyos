@@ -14,7 +14,7 @@ export const posReceiptFormatController = {
   async resolve(_request: NextRequest, auth: AuthContext, params: PosParams) {
     try {
       const posId = idString.parse(params.posId);
-      const resolved = await receiptFormatService.resolveForTerminal(BigInt(posId), auth.tenantId);
+      const resolved = await receiptFormatService.resolveForTerminal(BigInt(posId), auth.tenantId, auth.warehouseId);
       return successResponse(resolved, "Receipt format retrieved");
     } catch (error) {
       return handleRouteError(error);
@@ -24,7 +24,11 @@ export const posReceiptFormatController = {
   async resolveVersion(_request: NextRequest, auth: AuthContext, params: PosParams) {
     try {
       const posId = idString.parse(params.posId);
-      const resolved = await receiptFormatService.resolveVersionForTerminal(BigInt(posId), auth.tenantId);
+      const resolved = await receiptFormatService.resolveVersionForTerminal(
+        BigInt(posId),
+        auth.tenantId,
+        auth.warehouseId,
+      );
       return successResponse(resolved, "Receipt format version retrieved");
     } catch (error) {
       return handleRouteError(error);

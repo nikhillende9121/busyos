@@ -139,13 +139,25 @@ export const receiptFormatService = {
   // and still override it for a single misbehaving printer later without
   // touching the tenant-wide assignment. See
   // Docs/pos_receipt_format_guide.md's "Format Resolution Logic".
-  async resolveForTerminal(terminalId: bigint, tenantId: bigint): Promise<ResolvedReceiptFormatView> {
-    const terminal = await receiptFormatRepository.findTerminalById(terminalId);
-    if (!terminal || terminal.tenantId !== tenantId) {
-      throw new AppError("RESOURCE_NOT_FOUND", "POS device not found");
-    }
-
-    const format = await resolveFormatFor(terminal.id, terminal.warehouseId, tenantId);
+  //
+  // Deliberately does NOT require `posId` to match an existing Terminal
+  // row (it used to, via findTerminalById, but Terminal has no create/
+  // list UI anywhere in the portal — see prisma/schema.prisma's Terminal
+  // comment — so that check meant a tenant-level or default assignment
+  // could never be reached in practice; posId never resolves to a real
+  // row, so the whole chain 404'd before it got there). The store-level
+  // check now uses the caller's own `warehouseId` (from their auth
+  // token — see shared/middleware/with-api-auth.ts's AuthContext, already
+  // set for a warehouse-scoped POS user) instead of a Terminal lookup;
+  // `posId` still participates in the terminal-level check via
+  // findAssignmentByTerminal, for the rare case a Terminal row and an
+  // assignment for it do exist.
+  async resolveForTerminal(
+    posId: bigint,
+    tenantId: bigint,
+    warehouseId: bigint | null,
+  ): Promise<ResolvedReceiptFormatView> {
+    const format = await resolveFormatFor(posId, warehouseId, tenantId);
     if (!format) {
       throw new AppError("RESOURCE_NOT_FOUND", "No receipt format configured");
     }
@@ -159,22 +171,28 @@ export const receiptFormatService = {
     };
   },
 
-  async resolveVersionForTerminal(terminalId: bigint, tenantId: bigint): Promise<ResolvedReceiptFormatVersionView> {
-    const resolved = await this.resolveForTerminal(terminalId, tenantId);
+  async resolveVersionForTerminal(
+    posId: bigint,
+    tenantId: bigint,
+    warehouseId: bigint | null,
+  ): Promise<ResolvedReceiptFormatVersionView> {
+    const resolved = await this.resolveForTerminal(posId, tenantId, warehouseId);
     return { version: resolved.version };
   },
 };
 
 async function resolveFormatFor(
   terminalId: bigint,
-  warehouseId: bigint,
+  warehouseId: bigint | null,
   tenantId: bigint,
 ): Promise<ReceiptFormat | null> {
   const terminalAssignment = await receiptFormatRepository.findAssignmentByTerminal(terminalId);
   if (terminalAssignment) return terminalAssignment.receiptFormat;
 
-  const warehouseAssignment = await receiptFormatRepository.findAssignmentByWarehouse(warehouseId);
-  if (warehouseAssignment) return warehouseAssignment.receiptFormat;
+  if (warehouseId) {
+    const warehouseAssignment = await receiptFormatRepository.findAssignmentByWarehouse(warehouseId);
+    if (warehouseAssignment) return warehouseAssignment.receiptFormat;
+  }
 
   const tenantAssignment = await receiptFormatRepository.findAssignmentByTenant(tenantId);
   if (tenantAssignment) return tenantAssignment.receiptFormat;

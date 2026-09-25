@@ -207,6 +207,19 @@ default**. `404 RESOURCE_NOT_FOUND` if nothing resolves at any level (no assignm
 anywhere and no format has `isDefault: true`) — same as "no format resolved" in the
 Android guide; the app should fall back to its bundled default schema in that case.
 
+⚠️ **The store-level (`"WAREHOUSE"`) check no longer depends on `posId` matching an
+existing `Terminal` row — it used to, and that was a bug.** Since `Terminal` has no
+create/list UI anywhere in the portal (see `prisma/schema.prisma`'s `Terminal` comment),
+`posId` could never resolve to a real row in practice, so that lookup 404'd on every real
+call before it ever reached the tenant-level or default fallback — meaning a tenant-wide
+assignment was effectively unreachable. `posId` is no longer required to exist as a
+`Terminal` at all now: the terminal-level check still uses it as-is (for the rare case a
+real `Terminal` row and an assignment for it both exist), but the *store*-level check now
+uses the caller's own `warehouseId` from their auth token (`AuthContext.warehouseId`, see
+`shared/middleware/with-api-auth.ts` — already set for a warehouse-scoped POS user)
+instead. Net effect: a tenant-level assignment now always resolves regardless of whether
+`posId` corresponds to anything real, which is the behavior actually needed today.
+
 ### 2.2 `GET /pos/{posId}/receipt-format/version`
 
 Same auth/permission. Lightweight — call on startup, only fetch 2.1's full payload when
