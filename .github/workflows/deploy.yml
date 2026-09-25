@@ -3,7 +3,7 @@ name: Deploy BusyOS
 on:
   push:
     branches:
-      - Nikhil
+      - main
 
 jobs:
   deploy:
