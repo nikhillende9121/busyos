@@ -18,10 +18,10 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT }}
           script: |
-            cd /var/www/busyos-main
+            cd /var/www/busyos
 
             echo "Pulling latest code..."
-            git pull origin Nikhil
+            git pull origin main
 
             echo "Installing dependencies..."
             npm ci
